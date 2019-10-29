@@ -42,9 +42,29 @@ def plot_audio_signal(wav_file, seconds=True):
     plt.show()
 
 
+def plot_spectrogram(wav_file, nfft=16384, noverlap=8192, seconds=True):
+    wav = wave.open(wav_file, 'r')
+    signal = wav.readframes(-1)
+    signal = np.frombuffer(signal, dtype=np.int32)
+    plt.figure(figsize=(6, 5))
+    if seconds:
+        (_, frequencies, bins, _) = plt.specgram(signal, NFFT=nfft, Fs=wav.getframerate(), noverlap=noverlap)
+        plt.xlabel('time (s)')
+    else:
+        (_, frequencies, bins, _) = plt.specgram(signal, NFFT=nfft, Fs=1, noverlap=noverlap)
+        plt.xlabel('frame')
+    # print(frequencies)
+    # print(bins)
+    plt.ylim(0, 3520)
+    plt.title(f'Spectrogram of \'{wav_file}\'')
+    plt.ylabel('frequency (Hz)')
+    plt.show()
+
+
 def main():
-    print_wav_details('scratch-wav-files/test.wav')
-    plot_audio_signal('scratch-wav-files/test.wav')
+    # print_wav_details('scratch-wav-files/A4.wav')
+    # plot_audio_signal('scratch-wav-files/test.wav')
+    plot_spectrogram('scratch-wav-files/Scarborough Fair.wav')
 
 
 if __name__ == "__main__":
