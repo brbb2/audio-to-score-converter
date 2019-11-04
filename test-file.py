@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import wave
+from sklearn.decomposition import NMF
 
 
 def get_audio_signal(wav_file):
@@ -61,10 +62,23 @@ def plot_spectrogram(wav_file, nfft=16384, noverlap=8192, seconds=True):
     plt.show()
 
 
+def factorise_matrix(matrix, printing=False):
+    model = NMF(n_components=2, init='random', random_state=0)
+    w = model.fit_transform(matrix)
+    h = model.components_
+    if printing:
+        print('W =')
+        print(w)
+        print('\nH =')
+        print(h)
+    return w, h
+
+
 def main():
     # print_wav_details('scratch-wav-files/A4.wav')
-    # plot_audio_signal('scratch-wav-files/test.wav')
+    # plot_audio_signal('scratch-wav-files/A4.wav')
     plot_spectrogram('scratch-wav-files/Scarborough Fair.wav')
+    # factorise_matrix(np.array([[1, 1], [2, 1], [3, 1.2], [4, 1], [5, 0.8], [6, 1]]), printing=True)
 
 
 if __name__ == "__main__":
