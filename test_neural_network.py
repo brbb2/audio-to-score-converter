@@ -2,6 +2,10 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
 import random
+import os
+from test_file import get_spectrogram
+from sklearn.model_selection import StratifiedShuffleSplit
+from music21_test import get_monophonic_ground_truth
 from keras.datasets import mnist
 from keras.models import Sequential
 from keras.models import model_from_json
@@ -10,9 +14,44 @@ from keras.layers import Flatten
 
 
 def get_data():
+    x_list = list()
+    y_list = list()
+
+    # for each wav file in the data directory
+    for filename in os.listdir('scratch-wav-files'):
+        # get the spectrogram of the audio file
+        spectrum, _, _, _ = get_spectrogram(f'scratch-wav-files/{filename}.wav')
+        # and get the ground-truth note for each periodogram in the spectrum
+        ground_truth = get_monophonic_ground_truth(f'scratch-wav-files/{filename}.wav',
+                                                   f'scratch-xml-files/{filename}.musicxml')
+        # add each periodogram and its corresponding note to x_list and y_list respectively
+        for i in range(len(spectrum)):
+            x_list.insert(0, spectrum[i])
+            y_list.insert(0, ground_truth[i])
+
+    # shuffle the lists, preserving the correspondence between the indices of both lists
+    helper_list = list(zip(x_list, y_list))
+    random.shuffle(helper_list)
+    x_list, y_list = zip(*helper_list)
+
+    # turn the lists into arrays
+    x = np.array(x_list)
+    y = np.array(y_list)
+    return x, y
+
+
+def get_practice_data():
     (x_train, y_train), (x_test, y_test) = mnist.load_data()
     x_test = tf.keras.utils.normalize(x_test, axis=1)
     x_train = tf.keras.utils.normalize(x_train, axis=1)
+    return x_train, y_train, x_test, y_test
+
+
+def split_data(x, y, n_splits=1, test_size=0.1):
+    sss = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=42)
+    for train_indices, test_indices in sss.split(x, y):
+        x_train, x_test = x[train_indices], x[test_indices]
+        y_train, y_test = y[train_indices], y[test_indices]
     return x_train, y_train, x_test, y_test
 
 
