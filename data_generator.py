@@ -52,11 +52,12 @@ def print_note_info(input_note):
 
 def generate_wav(s, file_path, sound_font):
     s_midi = s.write('midi', f'{file_path}.mid')
-    fs = FluidSynth(sound_font=sound_font, sample_rate=44100)
-    print(f'FluidSynth(\'{sound_font}\', sample_rate=44100)')
-    print(f'fs.midi_to_audio(\'{s_midi}\', \'{file_path}.wav\')')
-    s_wav = fs.midi_to_audio(f'{file_path}.mid', f'{file_path}.wav')
-    return s_wav
+    fs = FluidSynth()
+    fs.play_midi('Scarborough Fair.mid')
+    # print(f'FluidSynth(\'{sound_font}\', sample_rate=44100)')
+    # print(f'fs.midi_to_audio(\'{s_midi}\', \'{file_path}.wav\')')
+    # s_wav = fs.midi_to_audio(f'{file_path}.mid', f'{file_path}.wav')
+    # return s_wav
 
 
 def generate_data(saving_wav=True, saving_xml=True, printing=False):
@@ -85,14 +86,27 @@ def example():
     print(f'      n.pitch.frequency = {n.pitch.frequency:.2f} Hz')
 
 
+def example_note(note_name):
+    n = note.Note(note_name)
+    print(f'                      n = note.Note(\'{note_name}\')')
+    print(f'                 n.name = {n.name}')
+    print(f'               n.octave = {n.octave}')
+    print(f'       n.nameWithOctave = {n.nameWithOctave}')
+    print(f'           n.pitch.midi = {n.pitch.midi}')
+    print(f'n.pitch.diatonicNoteNum = {n.pitch.diatonicNoteNum}')
+    print(f'     n.pitch.pitchClass = {n.pitch.pitchClass}')
+    print(f'      n.pitch.frequency = {n.pitch.frequency:.2f} Hz')
+
+
 def main():
-    s = get_single_note_stream(0, 4, 2, 100, 1, 5)
+    # s = get_single_note_stream(0, 4, 2, 100, 1, 5)
     # print_note_info(s[1])
     # s.show()
     # print(f'scratch-xml-files/{pitch_values[s[1].pitch.pitchClass]}{s[1].octave}.xml')
     # print(pitch_values[6])
     # example()
-    generate_wav(s, 'scratch-wav-files/single_C4', 'soundfonts/FluidR3_GM.sf2')
+    # generate_wav(s, 'scratch-wav-files/single_C4', 'soundfonts/FluidR3_GM.sf2')
+    example_note('C8')
 
 
 if __name__ == "__main__":
