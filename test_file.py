@@ -43,6 +43,29 @@ def plot_audio_signal(wav_file, seconds=True):
     plt.show()
 
 
+def get_spectrogram(wav_file, nfft=16384, noverlap=8192, seconds=True, printing=False):
+    wav = wave.open(wav_file, 'r')
+    signal = wav.readframes(-1)
+    signal = np.frombuffer(signal, dtype=np.int32)
+    plt.figure(figsize=(6, 5))
+    if seconds:
+        spectrum, frequencies, t, im = plt.specgram(signal, NFFT=nfft, Fs=wav.getframerate(), noverlap=noverlap)
+        plt.xlabel('time (s)')
+    else:
+        spectrum, frequencies, t, im = plt.specgram(signal, NFFT=nfft, Fs=1, noverlap=noverlap)
+        plt.xlabel('frame')
+    if printing:
+        print("spectrum:", spectrum.shape)
+        print(spectrum)
+        print()
+        print("frequencies:", frequencies.shape)
+        print(frequencies)
+        print()
+        print("column mid-points:", t.shape)
+        print(t)
+    return spectrum, frequencies, t, im
+
+
 def plot_spectrogram(wav_file, nfft=16384, noverlap=8192, seconds=True):
     wav = wave.open(wav_file, 'r')
     signal = wav.readframes(-1)
@@ -77,7 +100,8 @@ def factorise_matrix(matrix, printing=False):
 def main():
     # print_wav_details('scratch-wav-files/A4.wav')
     # plot_audio_signal('scratch-wav-files/A4.wav')
-    plot_spectrogram('scratch-wav-files/Scarborough Fair.wav')
+    get_spectrogram('scratch-wav-files/C5.wav', printing=True)
+    # plot_spectrogram('scratch-wav-files/Scarborough Fair.wav')
     # factorise_matrix(np.array([[1, 1], [2, 1], [3, 1.2], [4, 1], [5, 0.8], [6, 1]]), printing=True)
 
 
