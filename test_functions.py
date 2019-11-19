@@ -71,6 +71,11 @@ def test_getting_data(encoding='one_hot', printing=True, deep_printing=False):
     return x_train, y_train, x_test, y_test
 
 
+def print_layer_inputs_and_outputs(model):
+    for layer in model.layers:
+        print(f'{layer.__class__.__name__}:\n{layer.input_shape} -> {layer.output_shape}\n')
+
+
 def display_predictions(predictions, index=False):
     if index:
         return [np.argmax(predictions[x]) for x in range(len(predictions))]
