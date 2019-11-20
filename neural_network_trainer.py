@@ -80,9 +80,9 @@ def get_data(encoding='one_hot'):
     return x, y
 
 
-def split_data(x, y, n_splits=1, test_size=0.1, printing=False):
-    sss = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=42)
-    # x_train, y_train, x_test, y_test = np.array(dtype='object')  # declare arrays
+def split_data(x, y, n_splits=1, test_size=0.1, random_state=42, printing=False):
+    sss = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=random_state)
+    x_train, y_train, x_test, y_test = None  # declare arrays
     for train_indices, test_indices in sss.split(x, y):
         x_train, x_test = x[train_indices], x[test_indices]
         y_train, y_test = y[train_indices], y[test_indices]
@@ -95,13 +95,13 @@ def split_data(x, y, n_splits=1, test_size=0.1, printing=False):
     return x_train, y_train, x_test, y_test
 
 
-def get_and_split_data(encoding='one_hot', n_splits=1, test_size=0.1, normalising=True, printing=False):
+def get_and_split_data(encoding='one_hot', n_splits=1, test_size=0.1, random_state=42, normalising=True, printing=False):
     x, y = get_data(encoding=encoding)
     if normalising:
         x = normalize(x, axis=0)
     if printing:
         print_normalisations(x)
-    return split_data(x, y, n_splits=n_splits, test_size=test_size, printing=printing)
+    return split_data(x, y, n_splits=n_splits, test_size=test_size, random_state=random_state, printing=printing)
 
 
 def train_model(model, model_name, x_train, y_train, optimizer='adam',
@@ -146,6 +146,14 @@ def load_model_and_get_predictions(model_name, test_set):
     return model.predict([test_set])
 
 
+def get_model(model_name, x_shape, printing=False):
+    model = None
+    if model_name == 'baseline':
+        model = get_model_baseline(x_shape, printing=printing)
+
+    return model
+
+
 def evaluate_model(model_name, x_test, y_test, printing=True):
     model = load_model(model_name)
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
@@ -171,8 +179,9 @@ def main():
     print(f' y_train_one_hot.shape: {y_train_one_hot.shape}')
     # print(f'y_train_reshaped.shape: {y_train_reshaped.shape}')
     print()
-    model = get_model_baseline(x_train_reshaped.shape, printing=True)
-    print(model)
+    # model = get_model_baseline(x_train_reshaped.shape, printing=True)
+    model = get_model('baseline', x_train_reshaped.shape, printing=True)
+    # print(model)
     # train_model(model, 'baseline', x_train_reshaped, y_train_one_hot)
     predictions = load_model_and_get_predictions('baseline', x_test.reshape(x_test.shape[0], x_test.shape[1], 1))
     print(predictions)
