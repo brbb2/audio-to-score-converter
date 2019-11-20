@@ -16,6 +16,8 @@ def get_model_baseline(x_train_shape, printing=False):
     model.add(Dense(89, activation='softmax'))
 
     if printing:
+        # print(f'feature shape: {str(feature_shape): >18}')
+        # print(f' target shape: {str(target_shape): >18}\n')
         for layer in model.layers:
             print(f'{layer.__class__.__name__}:\n{layer.input_shape} -> {layer.output_shape}\n')
 
