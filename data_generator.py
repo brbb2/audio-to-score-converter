@@ -1,5 +1,6 @@
 from music21 import *
 import random
+import os
 
 
 pitch_values = {
@@ -85,11 +86,19 @@ def generate_midi_single_notes(samples=10, octaves=9, pitches=12, printing=False
                     print(f'{filename}.mid')
 
 
+def get_xml_from_midi():
+    for filename in os.listdir('midi_files'):
+        filename, _ = os.path.splitext(filename)
+        print(filename)
+        s = converter.parse(f'midi_files/{filename}.mid')
+        s.write('musicxml', f'xml_files/{filename}.musicxml')
+
+
 def generate_midi_rests(samples=10, printing=False):
     for i in range(samples):
         s = get_rest_stream()
         filename = f'rest_{i}'
-        s.write('midi', f'midi_files/{filename}')
+        s.write('midi', f'midi_files/{filename}.mid')
         if printing:
             print(f'{filename}.mid')
 
@@ -149,8 +158,9 @@ def main():
     # example()
     # generate_wav(s, 'midi_files/demo', 'soundfonts/FluidR3_GM.sf2')
     # generate_midi_single_notes(printing=True)
-    generate_midi_rests(printing=True)
+    # generate_midi_rests()
     # example_note('C8')
+    get_xml_from_midi()
 
 
 if __name__ == "__main__":
