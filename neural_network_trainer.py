@@ -55,14 +55,15 @@ def get_data(encoding='one_hot'):
     y_list = list()
 
     # for each wav file in the data directory
-    for filename in os.listdir('scratch-wav-files'):
+    for filename in os.listdir('wav_files'):
         # get the spectrogram of the audio file
-        spectrum, frequencies, t, _ = get_spectrogram(f'scratch-wav-files/{filename}')
+        spectrum, frequencies, t, _ = get_spectrogram(f'wav_files/{filename}')
         # print(f'len(frequencies): {len(frequencies)}')
         # print(spectrum.shape, len(t))
         # and get the ground-truth note for each periodogram in the spectrum
-        ground_truth = get_monophonic_ground_truth(f'scratch-wav-files/{filename}',
-                                                   f'scratch-xml-files/{filename[:-4]}.musicxml',
+        filename, _ = os.path.splitext(filename)  # remove file extension from the filename
+        ground_truth = get_monophonic_ground_truth(f'wav_files/{filename}.wav',
+                                                   f'xml_files/{filename}.musicxml',
                                                    encoding=encoding)
         # add each periodogram and its corresponding note to x_list and y_list respectively
         for i in range(len(ground_truth)):
@@ -82,7 +83,7 @@ def get_data(encoding='one_hot'):
 
 def split_data(x, y, n_splits=1, test_size=0.1, random_state=42, printing=False):
     sss = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=random_state)
-    x_train, y_train, x_test, y_test = None  # declare arrays
+    # x_train, y_train, x_test, y_test = None  # declare arrays
     for train_indices, test_indices in sss.split(x, y):
         x_train, x_test = x[train_indices], x[test_indices]
         y_train, y_test = y[train_indices], y[test_indices]
@@ -105,7 +106,7 @@ def get_and_split_data(encoding='one_hot', n_splits=1, test_size=0.1, random_sta
 
 
 def train_model(model, model_name, x_train, y_train, optimizer='adam',
-                loss='categorical_crossentropy', metrics=['accuracy'], epochs=5, saving=True):
+                loss='categorical_crossentropy', metrics=['accuracy'], epochs=2, saving=True):
 
     model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
     model.fit(x_train, y_train, epochs=epochs)
@@ -167,6 +168,10 @@ def main():
     x_train, y_train, x_test, y_test = get_and_split_data(encoding='midi_pitch')
     x_train_shape = x_train.shape  # ( 105, 8193) 105 samples, each with 8193 frequency bins
     y_train_shape = y_train.shape  # ( 105,   89) 105 samples, each with 89 one-hot values
+    y_train = y_train - 20
+    y_test = y_test - 20
+    print(f'x_train_shape: {str(x_train.shape): >13},  y_train_shape: {str(y_train.shape): >8}')
+    print(f' x_test_shape: {str(x_test.shape): >13},   y_test_shape: {str(y_test.shape): >8}')
     x_train_reshaped = x_train.reshape(x_train_shape[0], x_train_shape[1], 1)  # ( 105, 8193,  1)
     y_train_one_hot = to_categorical(y_train, num_classes=89, dtype='float32')
     # print(x_train)
