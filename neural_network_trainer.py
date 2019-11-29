@@ -1,13 +1,14 @@
 import os
 import random
 import numpy as np
-from audio_processor import get_spectrogram
-from neural_network_definitions import get_model_baseline
+from audio_processor import get_spectrogram, get_periodograms
+from neural_network_definitions import *
 from sklearn.model_selection import StratifiedShuffleSplit
 from ground_truth_converter import get_monophonic_ground_truth
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from keras.utils import normalize, to_categorical
 from keras.models import model_from_json
+from keras.callbacks import TensorBoard
 
 
 def print_normalisations(x):
@@ -96,6 +97,10 @@ def split_data(x, y, n_splits=1, test_size=0.1, random_state=42, printing=False)
     return x_train, y_train, x_test, y_test
 
 
+def split_development_data_files(x, y, development_proportion=0.1):
+    return x, y
+
+
 def get_and_split_data(encoding='one_hot', n_splits=1, test_size=0.1, random_state=42, normalising=True, printing=False):
     x, y = get_data(encoding=encoding)
     if normalising:
@@ -108,13 +113,21 @@ def get_and_split_data(encoding='one_hot', n_splits=1, test_size=0.1, random_sta
 def train_model(model, model_name, x_train, y_train, optimizer='adam',
                 loss='categorical_crossentropy', metrics=['accuracy'], epochs=2, saving=True):
 
+    tensorboard = TensorBoard(log_dir=f'logs/{model_name}')
     model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
-    model.fit(x_train, y_train, epochs=epochs)
+    model.fit(x_train, y_train, epochs=epochs, callbacks=[tensorboard])
 
     if saving:
         save_model_to_json(model, model_name)  # save model to JSON and save weights to HDF5
 
     return model
+
+
+def save_trained_model(model, model_name):
+    model_json = model.to_json()
+    with open(f'models/{model_name}.json', 'w') as json_file:
+        json_file.write(model_json)
+    model.save_weights(f'models/{model_name}.h5')
 
 
 def save_model_to_json(model, model_name, scratch=False):
@@ -147,15 +160,33 @@ def load_model_and_get_predictions(model_name, test_set):
     return model.predict([test_set])
 
 
-def get_model(model_name, x_shape, printing=False):
+def get_model_definition(model_name, x_shape, printing=False):
     model = None
     if model_name == 'baseline':
         model = get_model_baseline(x_shape, printing=printing)
+    elif model_name == 'baseline3':
+        model = get_model_3(x_shape, printing=printing)
+    elif model_name == 'baseline4':
+        model = get_model_4(x_shape, printing=printing)
+    elif model_name == 'baseline5':
+        model = get_model_5(x_shape, printing=printing)
+    elif model_name == 'baseline6':
+        model = get_model_6(x_shape, printing=printing)
+    elif model_name == 'baseline7':
+        model = get_model_7(x_shape, printing=printing)
 
     return model
 
 
-def evaluate_model(model_name, x_test, y_test, printing=True):
+def evaluate(model, x_test, y_test, printing=True):
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    val_loss, val_acc = model.evaluate(x_test, y_test)
+    if printing:
+        print(f'\nval_loss = {val_loss}\nval_acc  = {val_acc}')
+    return val_loss, val_acc
+
+
+def load_saved_model_and_evaluate(model_name, x_test, y_test, printing=True):
     model = load_model(model_name)
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
     val_loss, val_acc = model.evaluate(x_test, y_test)
@@ -164,32 +195,65 @@ def evaluate_model(model_name, x_test, y_test, printing=True):
     return val_loss, val_acc
 
 
+def shuffle_data(x, y):
+    np.random.seed(42)
+    np.random.shuffle(x)
+    np.random.seed(42)
+    np.random.shuffle(y)
+    return x, y
+
+
+def cross_validate(model, model_name, x_dev, y_dev, n_folds=10, shuffling=True):
+
+    fold_accuracies = np.zeros(n_folds)
+
+    for fold in range(n_folds):
+
+        training_files, validation_files = split_development_data_files(x_dev, y_dev)
+
+        x_train = list()
+        y_train = list()
+
+        for wav_file in training_files:
+            periodograms = get_periodograms(wav_file)
+            x_train.append(periodograms)
+            ground_truth = get_monophonic_ground_truth(wav_file)
+            y_train.append(ground_truth)
+
+        x_val = list()
+        y_val = list()
+
+        for wav_file in validation_files:
+            periodograms = get_periodograms(wav_file)
+            x_val.append(periodograms)
+            ground_truth = get_monophonic_ground_truth(wav_file)
+            y_val.append = ground_truth
+
+        if shuffling:
+            x_train, y_train = shuffle_data(x_train, y_train)
+
+        train_model(model, x_train, y_train)
+        accuracy = evaluate(model, x_val, y_val, printing=False)
+        fold_accuracies[fold] = accuracy
+        save_trained_model(model, f'{model_name}_{fold}')
+
+    return fold_accuracies
+
+
 def main():
     x_train, y_train, x_test, y_test = get_and_split_data(encoding='midi_pitch')
-    x_train_shape = x_train.shape  # ( 105, 8193) 105 samples, each with 8193 frequency bins
-    y_train_shape = y_train.shape  # ( 105,   89) 105 samples, each with 89 one-hot values
     y_train = y_train - 20
     y_test = y_test - 20
-    print(f'x_train_shape: {str(x_train.shape): >13},  y_train_shape: {str(y_train.shape): >8}')
-    print(f' x_test_shape: {str(x_test.shape): >13},   y_test_shape: {str(y_test.shape): >8}')
-    x_train_reshaped = x_train.reshape(x_train_shape[0], x_train_shape[1], 1)  # ( 105, 8193,  1)
+    x_train_reshaped = x_train.reshape(x_train.shape[0], x_train.shape[1], 1)  # ( 105, 8193,  1)
     y_train_one_hot = to_categorical(y_train, num_classes=89, dtype='float32')
-    # print(x_train)
-    # print(y_train)
-    # print(x_train_reshaped)
-    # print(y_train_one_hot)
-    print(f'         x_train.shape: {x_train_shape}')
+
+    print(f'         x_train.shape: {x_train.shape}')
     print(f'x_train_reshaped.shape: {x_train_reshaped.shape}')
-    print(f'         y_train.shape: {y_train_shape}')
-    print(f' y_train_one_hot.shape: {y_train_one_hot.shape}')
-    # print(f'y_train_reshaped.shape: {y_train_reshaped.shape}')
-    print()
-    # model = get_model_baseline(x_train_reshaped.shape, printing=True)
-    model = get_model('baseline', x_train_reshaped.shape, printing=True)
-    # print(model)
-    # train_model(model, 'baseline', x_train_reshaped, y_train_one_hot)
-    predictions = load_model_and_get_predictions('baseline', x_test.reshape(x_test.shape[0], x_test.shape[1], 1))
-    print(predictions)
+    print(f'         y_train.shape: {y_train.shape}')
+    print(f' y_train_one_hot.shape: {y_train_one_hot.shape}\n')
+
+    model = get_model_definition('baseline7', x_train_reshaped.shape, printing=True)
+    train_model(model, 'baseline7', x_train_reshaped, y_train_one_hot, epochs=5)
 
 
 if __name__ == "__main__":
