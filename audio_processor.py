@@ -79,11 +79,22 @@ def plot_spectrogram(wav_file, nfft=16384, noverlap=8192, seconds=True):
     plt.show()
 
 
+def get_periodograms(wav_file):
+    spectrum, _, _, _ = get_spectrogram(wav_file)
+    return np.swapaxes(spectrum, 0, 1)
+
+
 def main():
     # print_wav_details('scratch-wav-files/A4.wav')
     # plot_audio_signal('scratch-wav-files/A4.wav')
-    get_spectrogram('scratch-wav-files/C5.wav', printing=True)
-    plot_spectrogram('scratch-wav-files/C5.wav')
+    spectrum, frequencies, times, _ = get_spectrogram('scratch-wav-files/C5.wav')
+    print(spectrum.shape)
+    print(spectrum)
+    print()
+    periodograms = get_periodograms('scratch-wav-files/C5.wav')
+    print(periodograms.shape)
+    print(periodograms)
+    # plot_spectrogram('scratch-wav-files/C5.wav')
     # plot_spectrogram('scratch-wav-files/Scarborough Fair.wav')
 
 
