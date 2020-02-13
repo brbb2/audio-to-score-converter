@@ -1,14 +1,15 @@
 import os
 import random
 import numpy as np
-from audio_processor import get_spectrogram, get_periodograms
+import midi_manager
+from math import floor
+from audio_processor import get_spectrogram_scipy, get_periodograms
 from neural_network_definitions import *
 from sklearn.model_selection import StratifiedShuffleSplit
 from ground_truth_converter import get_monophonic_ground_truth
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from keras.utils import normalize, to_categorical
 from keras.models import model_from_json
-from keras.callbacks import TensorBoard
+from keras.callbacks import TensorBoard, EarlyStopping
 
 
 def print_normalisations(x):
@@ -51,14 +52,14 @@ def print_counts_table(y, y_train, y_test):
         print(f'{str(y_targets[i]): <9} | {y_counts[i]: >7}  {y_train_count: >7}  {y_test_count: >7}')
 
 
-def get_data(encoding='one_hot'):
+def get_data(encoding='midi_pitch', midi=False):
     x_list = list()
     y_list = list()
 
     # for each wav file in the data directory
     for filename in os.listdir('wav_files'):
         # get the spectrogram of the audio file
-        spectrum, frequencies, t, _ = get_spectrogram(f'wav_files/{filename}')
+        f, t, sxx = get_spectrogram_scipy(f'wav_files/{filename}', midi=midi)
         # print(f'len(frequencies): {len(frequencies)}')
         # print(spectrum.shape, len(t))
         # and get the ground-truth note for each periodogram in the spectrum
@@ -68,7 +69,7 @@ def get_data(encoding='one_hot'):
                                                    encoding=encoding)
         # add each periodogram and its corresponding note to x_list and y_list respectively
         for i in range(len(ground_truth)):
-            x_list.insert(0, spectrum[:, i])
+            x_list.insert(0, sxx[:, i])
             y_list.insert(0, ground_truth[i])
 
     # shuffle the lists, preserving the correspondence between the indices of both lists
@@ -82,9 +83,23 @@ def get_data(encoding='one_hot'):
     return x, y
 
 
+def reduce_data(x, y, proportion=0.25):
+    assert (0 <= proportion <= 1)
+    size = floor(x.shape[0] * proportion)
+    return x[:size], y[:size]
+
+
+def shuffle_data(x, y):
+    np.random.seed(42)
+    np.random.shuffle(x)
+    np.random.seed(42)
+    np.random.shuffle(y)
+    return x, y
+
+
 def split_data(x, y, n_splits=1, test_size=0.1, random_state=42, printing=False):
     sss = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=random_state)
-    # x_train, y_train, x_test, y_test = None  # declare arrays
+
     for train_indices, test_indices in sss.split(x, y):
         x_train, x_test = x[train_indices], x[test_indices]
         y_train, y_test = y[train_indices], y[test_indices]
@@ -97,12 +112,9 @@ def split_data(x, y, n_splits=1, test_size=0.1, random_state=42, printing=False)
     return x_train, y_train, x_test, y_test
 
 
-def split_development_data_files(x, y, development_proportion=0.1):
-    return x, y
-
-
-def get_and_split_data(encoding='one_hot', n_splits=1, test_size=0.1, random_state=42, normalising=True, printing=False):
-    x, y = get_data(encoding=encoding)
+def get_and_split_data(encoding='midi_pitch', n_splits=1, test_size=0.1, random_state=42,
+                       midi=False, normalising=True, printing=False):
+    x, y = get_data(encoding=encoding, midi=midi)
     if normalising:
         x = normalize(x, axis=0)
     if printing:
@@ -110,17 +122,103 @@ def get_and_split_data(encoding='one_hot', n_splits=1, test_size=0.1, random_sta
     return split_data(x, y, n_splits=n_splits, test_size=test_size, random_state=random_state, printing=printing)
 
 
-def train_model(model, model_name, x_train, y_train, optimizer='adam',
-                loss='categorical_crossentropy', metrics=['accuracy'], epochs=2, saving=True):
+def preprocess_data(x_train, y_train, x_val, y_val, printing=False):
+
+    x_train_reshaped = x_train.reshape(x_train.shape[0], x_train.shape[1], 1)
+
+    y_train = y_train - 20
+    mask_train = np.where(y_train == -21)
+    y_train[mask_train] = 0
+    y_train_one_hot = to_categorical(y_train, num_classes=89, dtype='float32')
+
+    x_val_reshaped = x_val.reshape(x_val.shape[0], x_val.shape[1], 1)
+
+    y_val = y_val - 20
+    mask_val = np.where(y_val == -21)
+    y_val[mask_val] = 0
+    y_val_one_hot = to_categorical(y_val, num_classes=89, dtype='float32')
+
+    if printing:
+        print(x_train)
+        print(x_train_reshaped)
+        print(y_train)
+        print(y_train_one_hot)
+        print()
+        print(f'         x_train.shape: {x_train.shape}')
+        print(f'x_train_reshaped.shape: {x_train_reshaped.shape}')
+        print(f'         y_train.shape: {y_train.shape}')
+        print(f' y_train_one_hot.shape: {y_train_one_hot.shape}\n')
+
+    return x_train_reshaped, y_train_one_hot, x_val_reshaped, y_val_one_hot
+
+
+def print_data(x_train, y_train, x_val, y_val):
+    print(f'x_train: {x_train.shape}')
+    print(x_train)
+    print(f'\ny_train: {y_train.shape}')
+    print(y_train)
+    print(f'\nx_val: {x_val.shape}')
+    print(x_val)
+    print(f'\ny_val: {y_val.shape}')
+    print(y_val)
+
+
+def save_data_arrays(x_train, y_train, x_val, y_val, version):
+    np.save(f'data_arrays/version{version}/x_train.npy', x_train)
+    np.save(f'data_arrays/version{version}/y_train.npy', y_train)
+    np.save(f'data_arrays/version{version}/x_val.npy', x_val)
+    np.save(f'data_arrays/version{version}/y_val.npy', y_val)
+
+
+def load_data_arrays(version):
+    x_train = np.load(f'data_arrays/version{version}/x_train.npy')
+    y_train = np.load(f'data_arrays/version{version}/y_train.npy')
+    x_val = np.load(f'data_arrays/version{version}/x_val.npy')
+    y_val = np.load(f'data_arrays/version{version}/y_val.npy')
+    return x_train, y_train, x_val, y_val
+
+
+def get_model_definition(model_name, x_shape, printing=False):
+    model = None
+    if model_name == 'baseline':
+        model = get_model_baseline(x_shape, printing=printing)
+    elif model_name == 'baseline3':
+        model = get_model_3(x_shape, printing=printing)
+    elif model_name == 'baseline4':
+        model = get_model_4(x_shape, printing=printing)
+    elif model_name == 'baseline5':
+        model = get_model_5(x_shape, printing=printing)
+    elif model_name == 'baseline6':
+        model = get_model_6(x_shape, printing=printing)
+    elif model_name == 'baseline7':
+        model = get_model_7(x_shape, printing=printing)
+    elif model_name == 'new':
+        model = get_model_new(x_shape, printing=printing)
+    elif model_name == 'midi':
+        model = get_model_midi(x_shape, printing=printing)
+
+    return model
+
+
+def train_model(model, model_name, x_train, y_train, x_val, y_val, optimizer='adam', epochs=50, patience=2,
+                loss='categorical_crossentropy', metrics=['accuracy'], min_delta=0, saving=True):
 
     tensorboard = TensorBoard(log_dir=f'logs/{model_name}')
+    es = EarlyStopping(patience=patience, min_delta=min_delta, restore_best_weights=True)
     model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
-    model.fit(x_train, y_train, epochs=epochs, callbacks=[tensorboard])
+    model.fit(x_train, y_train, epochs=epochs, callbacks=[tensorboard, es], validation_data=(x_val, y_val))
 
     if saving:
         save_model_to_json(model, model_name)  # save model to JSON and save weights to HDF5
 
     return model
+
+
+def train(model_name, save_name, x_train, y_train, x_val, y_val, optimizer='adam', epochs=50, patience=2,
+          loss='categorical_crossentropy', metrics=['accuracy'], min_delta=0, saving=True, printing=True):
+    model = get_model_definition(model_name, x_train.shape, printing=printing)
+    train_model(model, save_name, x_train, y_train, x_val, y_val, optimizer=optimizer, epochs=epochs, patience=patience,
+                loss=loss, metrics=metrics, min_delta=min_delta, saving=saving)
 
 
 def save_trained_model(model, model_name):
@@ -155,27 +253,43 @@ def get_predictions(model, test_set):
     return model.predict([test_set])
 
 
-def load_model_and_get_predictions(model_name, test_set):
+def load_model_and_get_predictions(model_name, x):
     model = load_model(model_name)
-    return model.predict([test_set])
+    return model.predict([x])
 
 
-def get_model_definition(model_name, x_shape, printing=False):
-    model = None
-    if model_name == 'baseline':
-        model = get_model_baseline(x_shape, printing=printing)
-    elif model_name == 'baseline3':
-        model = get_model_3(x_shape, printing=printing)
-    elif model_name == 'baseline4':
-        model = get_model_4(x_shape, printing=printing)
-    elif model_name == 'baseline5':
-        model = get_model_5(x_shape, printing=printing)
-    elif model_name == 'baseline6':
-        model = get_model_6(x_shape, printing=printing)
-    elif model_name == 'baseline7':
-        model = get_model_7(x_shape, printing=printing)
+def show_example_prediction(i=0, version=1, x_val=None, y_val=None, printing_in_full=False):
+    if x_val is None or y_val is None:
+        _, _, x_val, y_val = load_data_arrays(version)
+    example = (x_val[i], y_val[i])
+    example_prediction = load_model_and_get_predictions('new3', [example[0]])[0]
+    example_ground_truth = example[1]
+    i_prediction = np.argmax(example_prediction)
+    i_ground_truth = np.argmax(example_ground_truth)
+    midi_pitch_prediction = midi_manager.interpret_one_hot(example_prediction)
+    midi_pitch_ground_truth = midi_manager.interpret_one_hot(example_ground_truth)
+    note_name_prediction = midi_manager.get_note_name(midi_pitch_prediction)
+    note_name_ground_truth = midi_manager.get_note_name(midi_pitch_ground_truth)
 
-    return model
+    if printing_in_full:
+        print()
+        print(example_prediction)
+        print()
+        print(example_ground_truth)
+
+    print()
+    print(f'val instance {i}')
+    print(f'         i_prediction: {i_prediction:>4}            i_ground_truth: {i_ground_truth:>4}')
+    print(f'midi_pitch_prediction: {midi_pitch_prediction:>4}   midi_pitch_ground_truth: {midi_pitch_ground_truth:>4}')
+    print(f' note_name_prediction: {note_name_prediction:>4}    note_name_ground_truth: {note_name_ground_truth:>4}')
+
+
+def show_first_n_predictions(n=25, x_val=None, y_val=None, version=1):
+    if x_val is None or y_val is None:
+        _, _, x_val, y_val = load_data_arrays(version)
+    assert (n < len(x_val))
+    for i in range(n):
+        show_example_prediction(i, x_val=x_val, y_val=y_val)
 
 
 def evaluate(model, x_test, y_test, printing=True):
@@ -193,14 +307,6 @@ def load_saved_model_and_evaluate(model_name, x_test, y_test, printing=True):
     if printing:
         print(f'\nval_loss = {val_loss}\nval_acc  = {val_acc}')
     return val_loss, val_acc
-
-
-def shuffle_data(x, y):
-    np.random.seed(42)
-    np.random.shuffle(x)
-    np.random.seed(42)
-    np.random.shuffle(y)
-    return x, y
 
 
 def cross_validate(model, model_name, x_dev, y_dev, n_folds=10, shuffling=True):
@@ -241,19 +347,16 @@ def cross_validate(model, model_name, x_dev, y_dev, n_folds=10, shuffling=True):
 
 
 def main():
-    x_train, y_train, x_test, y_test = get_and_split_data(encoding='midi_pitch')
-    y_train = y_train - 20
-    y_test = y_test - 20
-    x_train_reshaped = x_train.reshape(x_train.shape[0], x_train.shape[1], 1)  # ( 105, 8193,  1)
-    y_train_one_hot = to_categorical(y_train, num_classes=89, dtype='float32')
+    # x_train, y_train, x_val, y_val = get_and_split_data(midi=True)
+    # x_train, y_train, x_val, y_val = preprocess_data(x_train, y_train, x_val, y_val)
+    # save_arrays(x_train, y_train, x_val, y_val, 2)
 
-    print(f'         x_train.shape: {x_train.shape}')
-    print(f'x_train_reshaped.shape: {x_train_reshaped.shape}')
-    print(f'         y_train.shape: {y_train.shape}')
-    print(f' y_train_one_hot.shape: {y_train_one_hot.shape}\n')
+    x_train, y_train, x_val, y_val = load_data_arrays(1)
+    # print_data(x_train, y_train, x_val, y_val)
 
-    model = get_model_definition('baseline7', x_train_reshaped.shape, printing=True)
-    train_model(model, 'baseline7', x_train_reshaped, y_train_one_hot, epochs=5)
+    # train('midi', 'new4', x_train, y_train, x_val, y_val, printing=True)
+
+    show_first_n_predictions(x_val=x_val, y_val=y_val)
 
 
 if __name__ == "__main__":
