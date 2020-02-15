@@ -16,8 +16,6 @@ def get_model_baseline(x_train_shape, printing=False):
     model.add(Dense(89, activation='softmax'))
 
     if printing:
-        # print(f'feature shape: {str(feature_shape): >18}')
-        # print(f' target shape: {str(target_shape): >18}\n')
         for layer in model.layers:
             print(f'{layer.__class__.__name__}:\n{layer.input_shape} -> {layer.output_shape}\n')
 
@@ -38,8 +36,6 @@ def get_model_3(x_train_shape, printing=False):
     model.add(Dense(89, activation='softmax'))
 
     if printing:
-        # print(f'feature shape: {str(feature_shape): >18}')
-        # print(f' target shape: {str(target_shape): >18}\n')
         for layer in model.layers:
             print(f'{layer.__class__.__name__}:\n{layer.input_shape} -> {layer.output_shape}\n')
         print()
@@ -61,8 +57,6 @@ def get_model_4(x_train_shape, printing=False):
     model.add(Dense(89, activation='softmax'))
 
     if printing:
-        # print(f'feature shape: {str(feature_shape): >18}')
-        # print(f' target shape: {str(target_shape): >18}\n')
         for layer in model.layers:
             print(f'{layer.__class__.__name__}:\n{layer.input_shape} -> {layer.output_shape}\n')
         print()
@@ -84,8 +78,6 @@ def get_model_5(x_train_shape, printing=False):
     model.add(Dense(89, activation='softmax'))
 
     if printing:
-        # print(f'feature shape: {str(feature_shape): >18}')
-        # print(f' target shape: {str(target_shape): >18}\n')
         for layer in model.layers:
             print(f'{layer.__class__.__name__}:\n{layer.input_shape} -> {layer.output_shape}\n')
         print()
@@ -110,8 +102,6 @@ def get_model_6(x_train_shape, printing=False):
     model.add(Dense(89, activation='softmax'))
 
     if printing:
-        # print(f'feature shape: {str(feature_shape): >18}')
-        # print(f' target shape: {str(target_shape): >18}\n')
         for layer in model.layers:
             print(f'{layer.__class__.__name__}:\n{layer.input_shape} -> {layer.output_shape}\n')
         print()
@@ -139,8 +129,6 @@ def get_model_7(x_train_shape, printing=False):
     model.add(Dense(89, activation='softmax'))
 
     if printing:
-        # print(f'feature shape: {str(feature_shape): >18}')
-        # print(f' target shape: {str(target_shape): >18}\n')
         for layer in model.layers:
             print(f'{layer.__class__.__name__}:\n{layer.input_shape} -> {layer.output_shape}\n')
         print()
@@ -162,8 +150,6 @@ def get_model_new(x_train_shape, printing=False):
     model.add(Dense(89, activation='softmax'))
 
     if printing:
-        # print(f'feature shape: {str(feature_shape): >18}')
-        # print(f' target shape: {str(target_shape): >18}\n')
         for layer in model.layers:
             print(f'{layer.__class__.__name__}:\n{layer.input_shape} -> {layer.output_shape}\n')
         print()
@@ -185,8 +171,6 @@ def get_model_midi(x_train_shape, printing=False):
     model.add(Dense(89, activation='softmax'))
 
     if printing:
-        # print(f'feature shape: {str(feature_shape): >18}')
-        # print(f' target shape: {str(target_shape): >18}\n')
         for layer in model.layers:
             print(f'{layer.__class__.__name__}:\n{layer.input_shape} -> {layer.output_shape}\n')
         print()
