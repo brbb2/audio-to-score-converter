@@ -32,6 +32,10 @@ pitch_offset_names = {
 }
 
 
+def get_pitch_array(start=21, end=108):
+    return np.concatenate((np.array([REST_ENCODING]), range(start, end+1)), 0)
+
+
 def get_midi_pitch(note_name, printing=False):
     if note_name == 'Rest':
         return REST_ENCODING
