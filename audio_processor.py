@@ -57,7 +57,7 @@ def print_spectrogram(spectrum, frequencies, t):
     print(t)
 
 
-def get_spectrogram_scipy(wav_file, window='hamming', nperseg=4096, noverlap=2048, printing=False, midi=False):
+def get_spectrogram_scipy(wav_file, window='hamming', nperseg=4096, noverlap=2048, printing=False, midi_bins=False):
     wav = wave.open(wav_file, 'r')
     signal = wav.readframes(-1)
     signal = np.frombuffer(signal, dtype=np.int32)
@@ -65,7 +65,7 @@ def get_spectrogram_scipy(wav_file, window='hamming', nperseg=4096, noverlap=204
     f, t, sxx = scipy.signal.spectrogram(signal, wav.getframerate(),
                                          window=window, nperseg=nperseg, noverlap=noverlap)
 
-    if midi:
+    if midi_bins:
         sxx = merge_frequencies(sxx, f)
 
     if printing:
@@ -143,7 +143,7 @@ def plot_spectrogram_scipy(wav_file, window='hamming', nperseg=4096, noverlap=20
                            showing=True, printing=False):
 
     f, t, sxx = get_spectrogram_scipy(wav_file, window=window, nperseg=nperseg, noverlap=noverlap,
-                                      midi=midi, printing=printing)
+                                      midi_bins=midi, printing=printing)
 
     plt.figure()
     plt.title(f'scipy.signal.spectrogram\n\"{wav_file}\"')
