@@ -3,10 +3,58 @@ import numpy as np
 import random
 from audio_processor import get_spectrogram_scipy, get_spectrogram_pyplot
 from audio_processor import plot_spectrogram_scipy, plot_spectrogram_pyplot
+from ground_truth_converter import get_monophonic_ground_truth
 from scipy.interpolate import interp1d
-from neural_network_trainer import load_model, load_model_and_get_predictions, load_data_arrays
+from neural_network_trainer import load_model, load_model_and_get_predictions, load_data_arrays, get_data_file_names
 from keras.utils import normalize
 import midi_manager
+
+
+def create_comparison_text_file(file_name, model_name, nperseg=4096, noverlap=2048, printing=False):
+    _, _, spectrum = get_spectrogram_scipy(f'wav_files/{file_name}.wav', nperseg=nperseg, noverlap=noverlap)
+    periodograms = np.swapaxes(spectrum, 0, 1)
+    periodograms = periodograms.reshape(periodograms.shape[0], periodograms.shape[1], 1)
+    ground_truth = get_monophonic_ground_truth(f'wav_files/{file_name}.wav', f'xml_files/{file_name}.musicxml',
+                                               encoding=None, nperseg=nperseg, noverlap=noverlap)
+    model = load_model(model_name)
+    probabilities = model.predict(periodograms)
+    predictions = np.empty(len(probabilities), dtype=object)
+    for i in range(len(probabilities)):
+        predictions[i] = midi_manager.interpret_one_hot(probabilities[i], encoding=None)
+
+    # write the ground truth pitches and pitch predictions to a text file
+    f = open(f'txt_files/{file_name}.txt', 'w')
+    f.write('        time step:   ')
+    for time_step in range(len(ground_truth)):
+        f.write(f'{time_step:<5}')
+    f.write('\n')
+    f.write('     ground truth:   ')
+    for pitch in ground_truth:
+        f.write(f'{pitch:<5}')
+    f.write('\n')
+    f.write('model predictions:   ')
+    for pitch in predictions:
+        f.write(f'{pitch:<5}')
+    f.close()
+
+    if printing:
+        print(spectrum.shape)
+        print(spectrum)
+        print()
+        print(predictions.shape)
+        print(predictions)
+        print()
+        print(ground_truth.shape)
+        print(ground_truth)
+
+
+def create_all_comparison_text_files(model_name, nperseg, noverlap, printing=True, deep_printing=False):
+    data_file_names = get_data_file_names()
+    for data_file_name in data_file_names:
+        create_comparison_text_file(data_file_name, model_name, nperseg=nperseg, noverlap=noverlap,
+                                    printing=deep_printing)
+        if printing:
+            print(f'Created comparison text file for \"{data_file_name}\".')
 
 
 def plot_note_graph(single_spectrum, t):
