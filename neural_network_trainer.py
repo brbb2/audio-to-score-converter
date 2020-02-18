@@ -3,8 +3,8 @@ import random
 import numpy as np
 import midi_manager
 from math import floor
-from audio_processor import get_spectrogram_scipy, get_periodograms
 from neural_network_definitions import *
+from audio_processor import get_spectrogram_scipy, get_periodograms
 from sklearn.model_selection import StratifiedShuffleSplit
 from ground_truth_converter import get_monophonic_ground_truth
 from keras.utils import normalize, to_categorical
@@ -79,7 +79,54 @@ def normalise_x_train_and_x_val(x_train, x_val, axis=0, printing=False):
     return x_train_normalised, x_val_normalised
 
 
-def get_data(encoding='midi_pitch', midi_bins=False, nperseg=4096, noverlap=2048):
+def get_data_dictionary(encoding=None, midi_bins=False, nperseg=4096, noverlap=2048, saving=False, save_name=None,
+                        reshaping=False):
+    data = dict()
+
+    # for each wav file in the data directory
+    for filename in os.listdir('wav_files'):
+
+        # remove file extension from the filename
+        filename, _ = os.path.splitext(filename)
+
+        # get the spectrogram of the audio file
+        f, t, sxx = get_spectrogram_scipy(f'wav_files/{filename}.wav', midi_bins=midi_bins,
+                                          nperseg=nperseg, noverlap=noverlap)
+
+        # and get the ground-truth note for each periodogram in the spectrum
+        ground_truth = get_monophonic_ground_truth(f'wav_files/{filename}.wav',
+                                                   f'xml_files/{filename}.musicxml',
+                                                   encoding=encoding, nperseg=nperseg, noverlap=noverlap)
+
+        sxx = np.swapaxes(sxx, 0, 1)
+
+        if reshaping:
+            sxx = sxx.reshape(sxx.shape[0], sxx.shape[1], 1)
+
+        # then create an entry in the dictionary to hold these data arrays
+        data[filename] = {
+            'features': sxx,
+            'ground_truth': ground_truth
+        }
+
+    if saving and save_name is not None:
+        np.save(f'{save_name}.npy', data)
+
+    return data
+
+
+def get_data_file_names(printing=False):
+    file_names = list()
+    for file_name in os.listdir('wav_files'):
+        file_name, _ = os.path.splitext(file_name)  # remove file extension from the filename
+        file_names.insert(0, file_name)
+    file_names.reverse()
+    if printing:
+        print(file_names)
+    return file_names
+
+
+def get_data(encoding='midi_pitch', midi_bins=False, nperseg=4096, noverlap=2048, flattening=True, shuffling=True):
     x_list = list()
     y_list = list()
 
@@ -93,15 +140,25 @@ def get_data(encoding='midi_pitch', midi_bins=False, nperseg=4096, noverlap=2048
         ground_truth = get_monophonic_ground_truth(f'wav_files/{filename}.wav',
                                                    f'xml_files/{filename}.musicxml',
                                                    encoding=encoding, nperseg=nperseg, noverlap=noverlap)
-        # add each periodogram and its corresponding note to x_list and y_list respectively
-        for i in range(len(ground_truth)):
-            x_list.insert(0, sxx[:, i])
-            y_list.insert(0, ground_truth[i])
+        if flattening:
+            # add each periodogram and its corresponding note to x_list and y_list respectively,
+            # inserting data at the front of the lists for efficiency
+            for i in range(len(ground_truth)):
+                x_list.insert(0, sxx[:, i])
+                y_list.insert(0, ground_truth[i])
+        else:
+            x_list.insert(0, np.swapaxes(sxx, 0, 1))
+            y_list.insert(0, ground_truth)
 
-    # shuffle the lists, preserving the correspondence between the indices of both lists
-    helper_list = list(zip(x_list, y_list))
-    random.shuffle(helper_list)
-    x_list, y_list = zip(*helper_list)
+    if shuffling:
+        # shuffle the lists, preserving the correspondence between the indices of both lists
+        helper_list = list(zip(x_list, y_list))
+        random.shuffle(helper_list)
+        x_list, y_list = zip(*helper_list)
+    else:
+        # reverse the lists to reverse the effects of inserting at the front
+        x_list.reverse()
+        y_list.reverse()
 
     # turn the lists into arrays
     x = np.array(x_list)
@@ -416,14 +473,37 @@ def cross_validate(model, model_name, x_dev, y_dev, n_folds=10, shuffling=True):
     return fold_accuracies
 
 
-def main():
-    x_train, y_train, x_val, y_val = get_and_prepare_data(midi_bins=False, nperseg=2048, noverlap=1024,
-                                                          saving=True, version='label_freq_025ms')
-    x_train, y_train, x_val, y_val = load_data_arrays('label_freq_025ms')
-    print_data(x_train, y_train, x_val, y_val)
+def add_first_order_difference(features, printing=False):
+    extended_features = np.zeros((features.shape[0] - 1, features.shape[1], 2))
+    extended_features[:, :, 0] = features[1:, :, 0]
+    extended_features[:, :, 1] = features[1:, :, 0] - features[:-1, :, 0]  # first-order difference
+    if printing:
+        print(f'\nextended features: {extended_features.shape}')
+        print(extended_features)
+    return extended_features
 
-    train('new', 'label_freq_025ms', x_train, y_train, x_val, y_val, printing=True,
-          loss='sparse_categorical_crossentropy')
+
+def main():
+    # x_train, y_train, x_val, y_val = get_and_prepare_data(midi_bins=False, nperseg=2048, noverlap=1024,
+    #                                                       saving=True, version='label_freq_025ms')
+    # x_train, y_train, x_val, y_val = load_data_arrays('label_freq_050ms')
+    # print_data(x_train, y_train, x_val, y_val)
+    #
+    # train('new', 'label_freq_025ms', x_train, y_train, x_val, y_val, printing=True,
+    #       loss='sparse_categorical_crossentropy')
+
+    # data = get_data_dictionary(encoding=None, saving=True, save_name='data_dict2', reshaping=True)
+    data = np.load('data_dict2.npy').item()
+    note = 'A0'
+    example = 0
+    features = data[f'single_{note}_{example}']['features']
+    ground_truth = data[f'single_{note}_{example}']['ground_truth']
+    print(f'  audio file: \"single_{note}_{example}.wav\"')
+    print(f'\n    features: {features.shape}    (number of windows, number of frequency bins, number of channels)')
+    print(features)
+    print(f'\nground truth: {ground_truth.shape}')
+    print(ground_truth)
+    add_first_order_difference(features)
 
     # show_example_prediction('one_hot_freq_050ms', 2, x_val=x_val, y_val=y_val, printing_in_full=True)
 
