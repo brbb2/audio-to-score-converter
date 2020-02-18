@@ -5,6 +5,14 @@ import wave
 import scipy.signal
 
 
+window_size_parameters = {
+    25: {'nperseg': 2048, 'noverlap': 1024},
+    50: {'nperseg': 4096, 'noverlap': 2048},
+    100: {'nperseg': 8192, 'noverlap': 4096},
+    200: {'nperseg': 16384, 'noverlap': 8192},
+}
+
+
 def get_audio_signal(wav_file):
     wav = wave.open(wav_file, 'r')
     signal = wav.readframes(-1)
@@ -136,6 +144,15 @@ def get_spectrogram_numpy(wav_file, window_size=0.2, sampling_frequency=44100, p
         print(windows)
         print(windows.shape)
     return spectrogram
+
+
+def get_spectrogram(wav_file, method='scipy', window='hamming', nperseg=4096, noverlap=2048,
+                    printing=False, midi_bins=False, seconds=True):
+    if method == 'scipy':
+        return get_spectrogram_scipy(wav_file, window=window, nperseg=nperseg, noverlap=noverlap,
+                                     printing=printing, midi_bins=midi_bins)
+    elif method == 'pyplot':
+        return get_spectrogram_pyplot(wav_file, nfft=nperseg, noverlap=noverlap, seconds=seconds, printing=printing)
 
 
 def plot_spectrogram_scipy(wav_file, window='hamming', nperseg=4096, noverlap=2048,
