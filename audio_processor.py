@@ -47,6 +47,8 @@ def plot_audio_signal(wav_file, seconds=True, showing=True):
     else:
         plt.plot(signal)
         plt.xlabel('frame')
+    plt.ylim(-0.1, 0.1)
+    plt.xlim(2.2, 2.201)
 
     plt.ylabel('Displacement')
 
@@ -69,7 +71,8 @@ def get_spectrogram_scipy(wav_file, window='hamming', nperseg=4096, noverlap=204
     wav = wave.open(wav_file, 'r')
     signal = wav.readframes(-1)
     signal = np.frombuffer(signal, dtype=np.int32)
-
+    if printing:
+        print(wav.getframerate())
     f, t, sxx = scipy.signal.spectrogram(signal, wav.getframerate(),
                                          window=window, nperseg=nperseg, noverlap=noverlap)
 
@@ -210,7 +213,7 @@ def plot_spectrogram_pyplot(wav_file, nfft=4096, noverlap=2048, seconds=True, sh
         plt.xlabel('frame')
 
     plt.ylabel('frequency (Hz)')
-    plt.ylim(0, 5000)
+    # plt.ylim(0, 5000)
 
     if showing:
         plt.show()
@@ -256,14 +259,20 @@ def merge_frequencies(spectrum, frequencies, printing=False):
 
 
 def main():
-    note = 'C8'
-    example = 2
+    note = 'C4'
+    example = 3
     test_wav = f'wav_files/single_{note}_{example}.wav'
 
+    # plot_audio_signal(test_wav)
+
     # plot_spectrogram_scipy(test_wav, showing=False)
-    plot_spectrogram_scipy(test_wav, midi=True, showing=False)
-    plot_spectrogram_pyplot(test_wav, showing=False)
-    plt.show()
+    # plot_spectrogram_scipy(test_wav, plotting_logged=False, midi=True, showing=False)
+    # plot_spectrogram_pyplot(test_wav, showing=False)
+    # plt.show()
+
+    f, t, sxx = get_spectrogram_scipy(test_wav)
+    print(sxx.shape)
+    print(sxx)
 
 
 if __name__ == "__main__":
