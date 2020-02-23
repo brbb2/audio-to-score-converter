@@ -4,11 +4,22 @@ from audio_processor import get_spectrogram_scipy
 from midi_manager import REST_ENCODING, one_hot_encode_midi_pitch
 
 
-def print_note(note_or_rest):
-    if type(note_or_rest) is note.Note:
-        print(f'{note_or_rest.offset: >6}  {note_or_rest.pitch}')
-    if type(note_or_rest) is note.Rest:
-        print(f'{note_or_rest.offset: >6}  Rest')
+def print_note(event, as_tuple=True):
+    if as_tuple:
+        if type(event) is note.Note:
+            event_name = str(event.nameWithOctave) + ','
+            onset = float(event.offset) / 2
+            print(f'({event_name:<5} {onset:8.3f})')
+        elif type(event) is note.Rest:
+            onset = float(event.offset) / 2
+            print(f'(rest, {onset:8.3f})')
+    else:
+        if type(event) is note.Note:
+            onset = float(event.offset) / 2
+            print(f'{onset:8.3f}  {event.pitch}')
+        if type(event) is note.Rest:
+            onset = float(event.offset) / 2
+            print(f'{onset:8.3f}  rest')
 
 
 def get_encoded_pitch(element, encoding='one_hot'):
@@ -26,7 +37,7 @@ def get_encoded_pitch(element, encoding='one_hot'):
         elif encoding == 'midi_pitch':
             encoded_pitch = REST_ENCODING
         else:
-            encoded_pitch = 'Rest'
+            encoded_pitch = 'rest'
     return encoded_pitch
 
 
@@ -55,8 +66,9 @@ def get_notes(score, printing=False, encoding='one_hot'):
     return notes
 
 
-def get_monophonic_periodogram_note(times, notes, encoding='one_hot'):
-    # print('len(times):', len(times), ' len(notes):', len(notes))
+def get_monophonic_periodogram_pitch(times, notes, encoding='midi_pitch'):
+
+    # initialise ground-truth array with rests
     if encoding == 'one_hot':
         ground_truth = np.empty(len(times), dtype=object)
         for i in range(len(ground_truth)):
@@ -66,11 +78,16 @@ def get_monophonic_periodogram_note(times, notes, encoding='one_hot'):
     else:
         ground_truth = np.empty(len(times), dtype=object)
         for i in range(len(ground_truth)):
-            ground_truth[i] = 'Rest'
+            ground_truth[i] = 'rest'
+
+    # for each window, determine whether a non-rest note is sounding at that time
     for i in range(len(times)):
         for n in notes:
-            if n[3] < times[i] < n[3] + n[4]:
+            note_onset = n[3]
+            note_offset = n[3] + n[4]
+            if note_onset < times[i] < note_offset:
                 ground_truth[i] = n[0]
+
     return ground_truth
 
 
@@ -78,21 +95,17 @@ def get_monophonic_ground_truth(wav, xml, encoding='one_hot', nperseg=4096, nove
     _, times, _ = get_spectrogram_scipy(wav, nperseg=nperseg, noverlap=noverlap)
     score = converter.parse(xml)
     notes = get_notes(score, encoding=encoding)
-    ground_truth = get_monophonic_periodogram_note(times, notes, encoding)
+    ground_truth = get_monophonic_periodogram_pitch(times, notes, encoding)
     if printing:
         print(f'{notes}\n\n{times}\n{type(times)}\n\n{ground_truth}\n{type(ground_truth)}')
     return ground_truth
 
 
-def run_test_case(encoding=None):
-    ground_truth = get_monophonic_ground_truth("scratch-wav-files/B4.wav", "scratch-xml-files/B4.musicxml",
-                                               encoding=encoding)
-    print(ground_truth)
-
-
 def main():
-    run_test_case(encoding=None)
-    run_test_case(encoding='midi_pitch')
+    s = converter.parse(f'midi_files/single_A4_7.mid')
+    for part in s:
+        for event in part:
+            print_note(event)
 
 
 if __name__ == "__main__":
