@@ -2,9 +2,10 @@ import os
 import random
 import numpy as np
 import midi_manager
-from math import floor
+from math import floor, ceil
 from neural_network_definitions import *
 from audio_processor import get_spectrogram_scipy, get_periodograms
+from sklearn.preprocessing import normalize
 from sklearn.model_selection import StratifiedShuffleSplit
 from ground_truth_converter import get_monophonic_ground_truth
 from keras.utils import normalize, to_categorical
@@ -110,7 +111,7 @@ def get_data_dictionary(encoding=None, midi_bins=False, nperseg=4096, noverlap=2
         }
 
     if saving and save_name is not None:
-        np.save(f'{save_name}.npy', data)
+        np.save(f'data_dictionaries/{save_name}.npy', data)
 
     return data
 
@@ -132,23 +133,24 @@ def get_data(encoding='midi_pitch', midi_bins=False, nperseg=4096, noverlap=2048
 
     # for each wav file in the data directory
     for filename in os.listdir('wav_files'):
-        # get the spectrogram of the audio file
-        f, t, sxx = get_spectrogram_scipy(f'wav_files/{filename}', midi_bins=midi_bins,
-                                          nperseg=nperseg, noverlap=noverlap)
-        # and get the ground-truth note for each periodogram in the spectrum
-        filename, _ = os.path.splitext(filename)  # remove file extension from the filename
-        ground_truth = get_monophonic_ground_truth(f'wav_files/{filename}.wav',
-                                                   f'xml_files/{filename}.musicxml',
-                                                   encoding=encoding, nperseg=nperseg, noverlap=noverlap)
-        if flattening:
-            # add each periodogram and its corresponding note to x_list and y_list respectively,
-            # inserting data at the front of the lists for efficiency
-            for i in range(len(ground_truth)):
-                x_list.insert(0, sxx[:, i])
-                y_list.insert(0, ground_truth[i])
-        else:
-            x_list.insert(0, np.swapaxes(sxx, 0, 1))
-            y_list.insert(0, ground_truth)
+        if os.path.isfile(f'wav_files/{filename}'):
+            # get the spectrogram of the audio file
+            f, t, sxx = get_spectrogram_scipy(f'wav_files/{filename}', midi_bins=midi_bins,
+                                              nperseg=nperseg, noverlap=noverlap)
+            # and get the ground-truth note for each periodogram in the spectrum
+            filename, _ = os.path.splitext(filename)  # remove file extension from the filename
+            ground_truth = get_monophonic_ground_truth(f'wav_files/{filename}.wav',
+                                                       f'xml_files/{filename}.musicxml',
+                                                       encoding=encoding, nperseg=nperseg, noverlap=noverlap)
+            if flattening:
+                # add each periodogram and its corresponding note to x_list and y_list respectively,
+                # inserting data at the front of the lists for efficiency
+                for i in range(len(ground_truth)):
+                    x_list.insert(0, sxx[:, i])
+                    y_list.insert(0, ground_truth[i])
+            else:
+                x_list.insert(0, np.swapaxes(sxx, 0, 1))
+                y_list.insert(0, ground_truth)
 
     if shuffling:
         # shuffle the lists, preserving the correspondence between the indices of both lists
@@ -163,6 +165,7 @@ def get_data(encoding='midi_pitch', midi_bins=False, nperseg=4096, noverlap=2048
     # turn the lists into arrays
     x = np.array(x_list)
     y = np.array(y_list)
+
     return x, y
 
 
@@ -249,8 +252,8 @@ def preprocess_data(x_train, y_train, x_val, y_val, encoding='midi_pitch',
 
 def get_and_prepare_data(encoding='midi_pitch', n_splits=1, test_size=0.1, random_state=42,
                          nperseg=4096, noverlap=2048, midi_bins=False, normalising_features=True,
-                         printing=False, saving=False, version=None):
-    x, y = get_data(encoding=encoding, midi_bins=midi_bins, nperseg=nperseg, noverlap=noverlap)
+                         printing=False, saving=False, version=None, shuffling=True):
+    x, y = get_data(encoding=encoding, midi_bins=midi_bins, nperseg=nperseg, noverlap=noverlap, shuffling=shuffling)
     x_train, y_train, x_val, y_val = split_data(x, y, n_splits=n_splits, test_size=test_size,
                                                 random_state=random_state, printing=printing)
     x_train, y_train, x_val, y_val = preprocess_data(x_train, y_train, x_val, y_val,
@@ -310,6 +313,10 @@ def get_model_definition(model_name, x_shape, printing=False):
         model = get_model_new(x_shape, printing=printing)
     elif model_name == 'midi':
         model = get_model_midi(x_shape, printing=printing)
+    elif model_name == 'dropout':
+        model = get_model_midi_dropout(x_shape, printing=printing)
+    elif model_name == 'rnn':
+        model = get_model_midi_rnn(x_shape, printing=printing)
     elif model_name == 'baseline3':
         model = get_model_3(x_shape, printing=printing)
     elif model_name == 'baseline4':
@@ -338,11 +345,11 @@ def train_model(model, model_name, x_train, y_train, x_val, y_val, optimizer='ad
     return model
 
 
-def train(model_name, save_name, x_train, y_train, x_val, y_val, optimizer='adam', epochs=50, patience=2,
-          loss='categorical_crossentropy', metrics=['accuracy'], min_delta=0, saving=True, printing=True):
+def train(model_name, save_name, x_train, y_train, x_val, y_val, optimizer='adam', epochs=500, patience=2,
+          metrics=['accuracy'], min_delta=0, saving=True, printing=True):
     model = get_model_definition(model_name, x_train.shape, printing=printing)
     train_model(model, save_name, x_train, y_train, x_val, y_val, optimizer=optimizer, epochs=epochs, patience=patience,
-                loss=loss, metrics=metrics, min_delta=min_delta, saving=saving)
+                loss='sparse_categorical_crossentropy', metrics=metrics, min_delta=min_delta, saving=saving)
 
 
 def save_trained_model(model, model_name):
@@ -483,27 +490,182 @@ def add_first_order_difference(features, printing=False):
     return extended_features
 
 
+def normalise_dictionary(dictionary=None, dictionary_name='data_basic', printing=False, strategy='maximum',
+                         saving=False, save_name=None):
+    if dictionary is None:
+        dictionary = load_dictionary(dictionary_name)
+
+    if strategy == 'maximum':
+        maximum = float(get_maximum(dictionary=dictionary))
+        for key in dictionary.keys():
+            dictionary[key]['features'] /= maximum
+    elif strategy == 'keras':
+        for key in dictionary.keys():
+            dictionary[key]['features'] = normalize(dictionary[key]['features'], axis=1)
+
+    if printing:
+        print(dictionary)
+
+    if saving and save_name is not None:
+        np.save(f'data_dictionaries/{save_name}.npy', dictionary)
+
+    return dictionary
+
+
+def label_encode_dictionary(dictionary, inserting_file_separators=False):
+    for key in dictionary.keys():
+        ground_truth = list()
+        for label in dictionary[key]['ground_truth']:
+            if inserting_file_separators:
+                if label == 'EoF':
+                    label_encoding = 89
+                else:
+                    label_encoding = midi_manager.get_midi_pitch(label) - 20
+            if label_encoding == -21:
+                label_encoding = 0
+            ground_truth.insert(0, label_encoding)
+        ground_truth.reverse()
+        ground_truth = np.array(ground_truth)
+        dictionary[key]['ground_truth'] = ground_truth
+    return dictionary
+
+
+def flatten_dictionary(dictionary, inserting_file_separators=False, printing=False, encoded=True):
+    x = list()
+    y = list()
+    periodogram_shape = next(iter(dictionary.items()))[1]['features'].shape[1:]
+    for key in dictionary.keys():
+        for periodogram in dictionary[key]['features']:
+            x.insert(0, periodogram)
+        for label in dictionary[key]['ground_truth']:
+            y.insert(0, label)
+        if inserting_file_separators:
+            x.insert(0, np.full(periodogram_shape, -1))
+            if encoded:
+                y.insert(0, 89)
+            else:
+                y.insert(0, 'EoF')
+
+    x.reverse()
+    y.reverse()
+
+    x = np.array(x)
+    y = np.array(y)
+
+    if printing:
+        print(f'number of files: {len(dictionary.keys())}')
+        print(f'\nx: {x.shape}')
+        print(x)
+        print(f'\ny: {y.shape}')
+        print(y)
+
+    return x, y
+
+
+def load_dictionary(dictionary_name):
+    return np.load(f'data_dictionaries/{dictionary_name}.npy').item()
+
+
+def get_maximum(dictionary=None, dictionary_name='data_basic', printing=False):
+    if dictionary is None:
+        dictionary = load_dictionary(dictionary_name)
+    maximum = 0
+    for key in dictionary.keys():
+        features = dictionary[key]['features']
+        features_maximum = np.amax(features)
+        if printing:
+            print(f'{features_maximum} > {maximum}')
+        if features_maximum > maximum:
+            maximum = features_maximum
+    if printing:
+        print(f'\nmaximum: {maximum}')
+    return maximum
+
+
+def remove_excess_rests(x, y, seed=42, printing=False):
+    y_targets, y_counts = np.unique(y, return_counts=True)
+    average_non_rest_count = np.average(y_counts[1:])
+    number_of_rests_to_keep = ceil(average_non_rest_count)
+
+    rest_indices = np.where(y == midi_manager.REST_ENCODING)[0]
+    np.random.seed(seed)
+    np.random.shuffle(rest_indices)
+    rests_to_keep_indices = rest_indices[:number_of_rests_to_keep]
+    rests_to_drop_indices = rest_indices[number_of_rests_to_keep:]
+
+    x_new = np.delete(x, rests_to_drop_indices, axis=0)
+    y_new = np.delete(y, rests_to_drop_indices, axis=0)
+
+    if printing:
+        print(f'        number of rests: {rest_indices.size}')
+        print(f'number of rests to keep: {number_of_rests_to_keep}')
+        print(f'                  split: {rests_to_keep_indices.size} | {rests_to_drop_indices.size}')
+        print(f'\nx: {x.shape}')
+        print(x)
+        print(f'\nx_new: {x_new.shape}')
+        print(x_new)
+        print(f'\ny: {y.shape}')
+        print(y)
+        print(f'\ny_new: {y_new.shape}')
+        print(y_new)
+        print()
+    return x_new, y_new
+
+
+def get_periodogram_spectral_power(periodogram):
+    return np.sum(np.square(periodogram))
+
+
+def add_spectral_powers(x, printing=False):
+    x_squared = np.apply_along_axis(np.square, 1, x)
+    spectral_powers = np.apply_along_axis(np.sum, 1, x_squared)
+    spectral_powers = spectral_powers.reshape(spectral_powers.shape[0], 1)
+    x_extended = np.concatenate((x, spectral_powers), axis=1)
+    if printing:
+        print(f'              x.shape: {x.shape}')
+        print(f'spectral_powers.shape: {spectral_powers.shape}')
+        print(f'     x_extended.shape: {x_extended.shape}')
+    return x_extended
+
+
 def main():
     # x_train, y_train, x_val, y_val = get_and_prepare_data(midi_bins=False, nperseg=2048, noverlap=1024,
     #                                                       saving=True, version='label_freq_025ms')
-    # x_train, y_train, x_val, y_val = load_data_arrays('label_freq_050ms')
+    # x_train, y_train, x_val, y_val = load_data_arrays('label_midi_025ms')
     # print_data(x_train, y_train, x_val, y_val)
-    #
-    # train('new', 'label_freq_025ms', x_train, y_train, x_val, y_val, printing=True,
-    #       loss='sparse_categorical_crossentropy')
+    x, y = get_data(midi_bins=False, nperseg=2048, noverlap=1024)
+    x = normalise_x(x)
+    x, y = remove_excess_rests(x, y)
+    x = add_spectral_powers(x, printing=True)
+    x_train, y_train, x_val, y_val = split_data(x, y)
+    y_train = midi_manager.encode_ground_truth_array(y_train, current_encoding='midi_pitch', desired_encoding='label')
+    y_val = midi_manager.encode_ground_truth_array(y_val, current_encoding='midi_pitch', desired_encoding='label')
+    x_train = x_train.reshape(x_train.shape[0], x_train.shape[1], 1)
+    x_val = x_val.reshape(x_val.shape[0], x_val.shape[1], 1)
+    # x_train = add_first_order_difference(x_train)
+    # x_val = add_first_order_difference(x_val)
+    print_data(x_train, y_train, x_val, y_val)
 
-    # data = get_data_dictionary(encoding=None, saving=True, save_name='data_dict2', reshaping=True)
-    data = np.load('data_dict2.npy').item()
-    note = 'A0'
-    example = 0
-    features = data[f'single_{note}_{example}']['features']
-    ground_truth = data[f'single_{note}_{example}']['ground_truth']
-    print(f'  audio file: \"single_{note}_{example}.wav\"')
-    print(f'\n    features: {features.shape}    (number of windows, number of frequency bins, number of channels)')
-    print(features)
-    print(f'\nground truth: {ground_truth.shape}')
-    print(ground_truth)
-    add_first_order_difference(features)
+    train('new', 'label_freq_025ms_remove_rests_10_powers', x_train, y_train, x_val, y_val, printing=True, patience=10)
+
+    # train('dropout', 'label_midi_025ms_dropout_0.2_patience_10',
+    #       x_train, y_train, x_val, y_val, printing=True, patience=10)
+    # data = load_dictionary('data_normalised_reshaped')
+    # flatten_dictionary(data, inserting_file_separators=True, printing=True, encoded=False)
+    # data = load_dictionary('data_normalised_reshaped')
+    # data = label_encode_dictionary(data, inserting_file_separators=True)
+    # x, y = flatten_dictionary(data, inserting_file_separators=True, printing=True, encoded=True)
+    #
+    # train('rnn', 'RNN_label_freq_050ms', x, y, x, y, printing=True, epochs=1)
+    # note = 'A0'
+    # example = 0
+    # features = data[f'single_{note}_{example}']['features']
+    # ground_truth = data[f'single_{note}_{example}']['ground_truth']
+    # print(f'  audio file: \"single_{note}_{example}.wav\"')
+    # print(f'\n    features: {features.shape}    (number of windows, number of frequency bins, number of channels)')
+    # print(features)
+    # print(f'\nground truth: {ground_truth.shape}')
+    # print(ground_truth)
 
     # show_example_prediction('one_hot_freq_050ms', 2, x_val=x_val, y_val=y_val, printing_in_full=True)
 
