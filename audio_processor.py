@@ -149,13 +149,17 @@ def get_spectrogram_numpy(wav_file, window_size=0.2, sampling_frequency=44100, p
     return spectrogram
 
 
-def get_spectrogram(wav_file, method='scipy', window='hamming', nperseg=4096, noverlap=2048,
+def get_spectrogram(wav_file, strategy='scipy', window='hamming', nperseg=4096, noverlap=2048,
                     printing=False, midi_bins=False, seconds=True):
-    if method == 'scipy':
-        return get_spectrogram_scipy(wav_file, window=window, nperseg=nperseg, noverlap=noverlap,
-                                     printing=printing, midi_bins=midi_bins)
-    elif method == 'pyplot':
-        return get_spectrogram_pyplot(wav_file, nfft=nperseg, noverlap=noverlap, seconds=seconds, printing=printing)
+    if strategy == 'scipy':
+        frequencies, times, spectrogram = get_spectrogram_scipy(wav_file, window=window, nperseg=nperseg,
+                                                                noverlap=noverlap, printing=printing,
+                                                                midi_bins=midi_bins)
+    elif strategy == 'pyplot':
+        spectrogram, frequencies, times, _ = get_spectrogram_pyplot(wav_file, nfft=nperseg, noverlap=noverlap,
+                                                                    seconds=seconds, printing=printing)
+
+    return frequencies, times, spectrogram
 
 
 def plot_spectrogram_scipy(wav_file, window='hamming', nperseg=4096, noverlap=2048,
@@ -267,12 +271,13 @@ def main():
 
     # plot_spectrogram_scipy(test_wav, showing=False)
     # plot_spectrogram_scipy(test_wav, plotting_logged=False, midi=True, showing=False)
-    # plot_spectrogram_pyplot(test_wav, showing=False)
-    # plt.show()
+    plot_spectrogram_pyplot(test_wav, showing=False)
+    plot_spectrogram_pyplot(f'wav_files/wav_files_no_reverb/single_{note}_{example}.wav', showing=False)
+    plt.show()
 
-    f, t, sxx = get_spectrogram_scipy(test_wav)
-    print(sxx.shape)
-    print(sxx)
+    # f, t, sxx = get_spectrogram_scipy(test_wav)
+    # print(sxx.shape)
+    # print(sxx)
 
 
 if __name__ == "__main__":
