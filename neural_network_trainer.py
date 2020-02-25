@@ -4,7 +4,7 @@ import numpy as np
 import midi_manager
 from math import floor, ceil
 from neural_network_definitions import *
-from audio_processor import get_spectrogram_scipy, get_periodograms
+from audio_processor import get_spectrogram_scipy, get_periodograms, get_spectrogram
 from sklearn.preprocessing import normalize
 from sklearn.model_selection import StratifiedShuffleSplit
 from ground_truth_converter import get_monophonic_ground_truth
@@ -53,6 +53,12 @@ def print_normalisation_options(x):
     print(normalize(x, axis=1))
 
 
+def normalise_max(x, taking_logs=False):
+    if taking_logs:
+        x = np.log10(x)
+    return x / np.amax(x)
+
+
 def normalise_x(x, axis=0, printing=False, printing_normalisation_options=False):
     x_normalised = normalize(x, axis=axis)
     if printing:
@@ -78,6 +84,28 @@ def normalise_x_train_and_x_val(x_train, x_val, axis=0, printing=False):
         print()
         print(x_normalised)
     return x_train_normalised, x_val_normalised
+
+
+def normalise_dictionary(dictionary=None, dictionary_name='data_basic', printing=False, strategy='maximum',
+                         saving=False, save_name=None):
+    if dictionary is None:
+        dictionary = load_dictionary(dictionary_name)
+
+    if strategy == 'maximum':
+        maximum = float(get_maximum(dictionary=dictionary))
+        for key in dictionary.keys():
+            dictionary[key]['features'] /= maximum
+    elif strategy == 'keras':
+        for key in dictionary.keys():
+            dictionary[key]['features'] = normalize(dictionary[key]['features'], axis=1)
+
+    if printing:
+        print(dictionary)
+
+    if saving and save_name is not None:
+        np.save(f'data_dictionaries/{save_name}.npy', dictionary)
+
+    return dictionary
 
 
 def get_data_dictionary(encoding=None, midi_bins=False, nperseg=4096, noverlap=2048, saving=False, save_name=None,
@@ -127,19 +155,76 @@ def get_data_file_names(printing=False):
     return file_names
 
 
-def get_data(encoding='midi_pitch', midi_bins=False, nperseg=4096, noverlap=2048, flattening=True, shuffling=True):
+def flatten_array_of_arrays(array_of_arrays):
+    array = None
+    for i in range(len(array_of_arrays)):
+        if array is not None:
+            array = np.concatenate((array, array_of_arrays[i]))
+        else:
+            array = array_of_arrays[i]
+    return array
+
+
+def flatten_data(x, y):
+    return flatten_array_of_arrays(x), flatten_array_of_arrays(y)
+
+
+def get_data_periodograms_flattened(midi_bins=False, nperseg=4096, noverlap=2048, ground_truth_encoding=None,
+                                    path='wav_files', strategy='scipy'):
+
     x_list = list()
     y_list = list()
 
     # for each wav file in the data directory
     for filename in os.listdir('wav_files'):
         if os.path.isfile(f'wav_files/{filename}'):
+
             # get the spectrogram of the audio file
-            f, t, sxx = get_spectrogram_scipy(f'wav_files/{filename}', midi_bins=midi_bins,
+            _, _, spectrogram = get_spectrogram(f'{path}/{filename}', midi_bins=midi_bins,
+                                                nperseg=nperseg, noverlap=noverlap, strategy=strategy)
+
+            # and get the ground-truth note for each periodogram in the spectrum
+            filename, _ = os.path.splitext(filename)  # remove file extension from the filename
+            ground_truth = get_monophonic_ground_truth(f'{path}/{filename}.wav', f'xml_files/{filename}.musicxml',
+                                                       encoding=ground_truth_encoding,
+                                                       nperseg=nperseg, noverlap=noverlap)
+
+            # add each periodogram and its corresponding note to x_list and y_list respectively,
+            # inserting data at the front of the lists for efficiency
+            for i in range(len(ground_truth)):
+                x_list.insert(0, spectrogram[:, i])
+                y_list.insert(0, ground_truth[i])
+
+    # turn the lists into arrays
+    x = np.array(x_list)
+    y = np.array(y_list)
+
+    # reverse the arrays to reverse the effects of inserting at the front of the lists
+    x = np.flip(x, axis=0)
+    y = np.flip(y, axis=0)
+
+    return x, y
+
+
+def get_data(encoding='midi_pitch', midi_bins=False, nperseg=4096, noverlap=2048, flattening=True, shuffling=True,
+             subdirectory=None):
+    x_list = list()
+    y_list = list()
+
+    if subdirectory is None:
+        wav_path = 'wav_files'
+    else:
+        wav_path = f'wav_files/{subdirectory}'
+
+    # for each wav file in the data directory
+    for filename in os.listdir('wav_files'):
+        if os.path.isfile(f'wav_files/{filename}'):
+            # get the spectrogram of the audio file
+            f, t, sxx = get_spectrogram_scipy(f'{wav_path}/{filename}', midi_bins=midi_bins,
                                               nperseg=nperseg, noverlap=noverlap)
             # and get the ground-truth note for each periodogram in the spectrum
             filename, _ = os.path.splitext(filename)  # remove file extension from the filename
-            ground_truth = get_monophonic_ground_truth(f'wav_files/{filename}.wav',
+            ground_truth = get_monophonic_ground_truth(f'{wav_path}/{filename}.wav',
                                                        f'xml_files/{filename}.musicxml',
                                                        encoding=encoding, nperseg=nperseg, noverlap=noverlap)
             if flattening:
@@ -152,19 +237,27 @@ def get_data(encoding='midi_pitch', midi_bins=False, nperseg=4096, noverlap=2048
                 x_list.insert(0, np.swapaxes(sxx, 0, 1))
                 y_list.insert(0, ground_truth)
 
-    if shuffling:
-        # shuffle the lists, preserving the correspondence between the indices of both lists
-        helper_list = list(zip(x_list, y_list))
-        random.shuffle(helper_list)
-        x_list, y_list = zip(*helper_list)
-    else:
-        # reverse the lists to reverse the effects of inserting at the front
-        x_list.reverse()
-        y_list.reverse()
+    # if shuffling:
+    #   # shuffle the lists, preserving the correspondence between the indices of both lists
+        # helper_list = list(zip(x_list, y_list))
+        # random.seed(42)
+        # random.shuffle(helper_list)
+        # x_list, y_list = zip(*helper_list)
+    # else:
+    #   # reverse the lists to reverse the effects of inserting at the front
+        # x_list.reverse()
+        # y_list.reverse()
 
     # turn the lists into arrays
     x = np.array(x_list)
     y = np.array(y_list)
+
+    if shuffling:
+        x, y = shuffle_data(x, y)
+    else:
+        # reverse the lists to reverse the effects of inserting at the front
+        x = np.flip(x, axis=0)
+        y = np.flip(y, axis=0)
 
     return x, y
 
@@ -311,9 +404,11 @@ def get_model_definition(model_name, x_shape, printing=False):
         model = get_model_baseline(x_shape, printing=printing)
     elif model_name == 'new':
         model = get_model_new(x_shape, printing=printing)
+    elif model_name == 'new_dropout':
+        model = get_model_new_dropout(x_shape, printing=printing)
     elif model_name == 'midi':
         model = get_model_midi(x_shape, printing=printing)
-    elif model_name == 'dropout':
+    elif model_name == 'midi_dropout':
         model = get_model_midi_dropout(x_shape, printing=printing)
     elif model_name == 'rnn':
         model = get_model_midi_rnn(x_shape, printing=printing)
@@ -490,28 +585,6 @@ def add_first_order_difference(features, printing=False):
     return extended_features
 
 
-def normalise_dictionary(dictionary=None, dictionary_name='data_basic', printing=False, strategy='maximum',
-                         saving=False, save_name=None):
-    if dictionary is None:
-        dictionary = load_dictionary(dictionary_name)
-
-    if strategy == 'maximum':
-        maximum = float(get_maximum(dictionary=dictionary))
-        for key in dictionary.keys():
-            dictionary[key]['features'] /= maximum
-    elif strategy == 'keras':
-        for key in dictionary.keys():
-            dictionary[key]['features'] = normalize(dictionary[key]['features'], axis=1)
-
-    if printing:
-        print(dictionary)
-
-    if saving and save_name is not None:
-        np.save(f'data_dictionaries/{save_name}.npy', dictionary)
-
-    return dictionary
-
-
 def label_encode_dictionary(dictionary, inserting_file_separators=False):
     for key in dictionary.keys():
         ground_truth = list()
@@ -582,13 +655,16 @@ def get_maximum(dictionary=None, dictionary_name='data_basic', printing=False):
     return maximum
 
 
-def remove_excess_rests(x, y, seed=42, printing=False):
+def remove_excess_rests(x, y, encoding=None, printing=False):
     y_targets, y_counts = np.unique(y, return_counts=True)
     average_non_rest_count = np.average(y_counts[1:])
     number_of_rests_to_keep = ceil(average_non_rest_count)
 
-    rest_indices = np.where(y == midi_manager.REST_ENCODING)[0]
-    np.random.seed(seed)
+    rest_representation = midi_manager.encode_ground_truth_array(np.array(['rest']),
+                                                                 current_encoding=None, desired_encoding=encoding)[0]
+
+    rest_indices = np.where(y == rest_representation)[0]
+    np.random.seed(42)
     np.random.shuffle(rest_indices)
     rests_to_keep_indices = rest_indices[:number_of_rests_to_keep]
     rests_to_drop_indices = rest_indices[number_of_rests_to_keep:]
@@ -633,20 +709,20 @@ def main():
     #                                                       saving=True, version='label_freq_025ms')
     # x_train, y_train, x_val, y_val = load_data_arrays('label_midi_025ms')
     # print_data(x_train, y_train, x_val, y_val)
-    x, y = get_data(midi_bins=False, nperseg=2048, noverlap=1024)
-    x = normalise_x(x)
+    # x, y = get_data(midi_bins=False, nperseg=2048, noverlap=1024)
+    x, y = get_data_periodograms_flattened(midi_bins=True, nperseg=2048, noverlap=1024)
     x, y = remove_excess_rests(x, y)
-    x = add_spectral_powers(x, printing=True)
+    # x = normalise_max(x, taking_logs=False)
+    # x = normalize(np.log10(x), axis=0)
+    y = midi_manager.encode_ground_truth_array(y, current_encoding=None, desired_encoding='label')
+    x = add_spectral_powers(x)
+    x = x.reshape(x.shape[0], x.shape[1], 1)
     x_train, y_train, x_val, y_val = split_data(x, y)
-    y_train = midi_manager.encode_ground_truth_array(y_train, current_encoding='midi_pitch', desired_encoding='label')
-    y_val = midi_manager.encode_ground_truth_array(y_val, current_encoding='midi_pitch', desired_encoding='label')
-    x_train = x_train.reshape(x_train.shape[0], x_train.shape[1], 1)
-    x_val = x_val.reshape(x_val.shape[0], x_val.shape[1], 1)
     # x_train = add_first_order_difference(x_train)
     # x_val = add_first_order_difference(x_val)
     print_data(x_train, y_train, x_val, y_val)
 
-    train('new', 'label_freq_025ms_remove_rests_10_powers', x_train, y_train, x_val, y_val, printing=True, patience=10)
+    train('midi', 'label_midi_025ms_remove_rests_10_powers_no_norm', x_train, y_train, x_val, y_val, printing=True, patience=10)
 
     # train('dropout', 'label_midi_025ms_dropout_0.2_patience_10',
     #       x_train, y_train, x_val, y_val, printing=True, patience=10)
