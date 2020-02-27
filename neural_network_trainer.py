@@ -168,7 +168,7 @@ def get_data_dictionary(encoding=None, midi_bins=False, nperseg=4096, noverlap=2
             filename, _ = os.path.splitext(filename)
 
             # get the spectrogram of the audio file
-            f, t, sxx = get_spectrogram_scipy(f'wav_files/{filename}.wav', midi_bins=midi_bins,
+            f, t, sxx = get_spectrogram_scipy(f'wav_files/{filename}.wav', using_midi_bins=midi_bins,
                                               nperseg=nperseg, noverlap=noverlap)
 
             # and get the ground-truth note for each periodogram in the spectrum
@@ -204,20 +204,38 @@ def get_data_file_names(printing=False):
     return file_names
 
 
-def flatten_array_of_arrays(array_of_arrays, inserting_file_separators=False, features=True, printing=False):
+def flatten_array_of_arrays(array_of_arrays, inserting_file_separators=False, features=True, printing=False,
+                            deep_printing=False):
     flattened_data = list()
+    channels_present = len(array_of_arrays[0].shape) == 3
+    number_of_channels = None
+    if channels_present:
+        number_of_channels = array_of_arrays[0].shape[2]
     for i in range(len(array_of_arrays)):
         for periodogram in array_of_arrays[i]:
             flattened_data.insert(0, periodogram)
         if inserting_file_separators:
             if features:
-                if printing:
+                if deep_printing:
                     print(len(array_of_arrays[0][1]))
-                flattened_data.insert(0, np.full(len(array_of_arrays[0][1]), -1))
+                if channels_present:
+                    flattened_data.insert(0, np.full((len(array_of_arrays[0][1]), number_of_channels), -1))
+                else:
+                    flattened_data.insert(0, np.full(len(array_of_arrays[0][1]), -1))
             else:
-                if printing:
+                if deep_printing:
                     print('EoF')
                 flattened_data.insert(0, 'EoF')
+
+    if printing:
+        print(f'array_of_arrays[0].shape: {array_of_arrays[0].shape}')
+        print(f'     len(flattened_data): {len(flattened_data)}')
+        if type(flattened_data[0]) is not str:
+            print(f'       flattened_data[0]: {flattened_data[0].shape}\n{flattened_data[0]}\n')
+        else:
+            print(f' type(flattened_data[0]): {type(flattened_data[0])}')
+            print(f'       flattened_data[0]: {flattened_data[0]}\n')
+
     flattened_data = np.array(flattened_data)[::-1]
     return flattened_data
 
@@ -226,11 +244,15 @@ def flatten_data(x, y):
     return flatten_array_of_arrays(x), flatten_array_of_arrays(y)
 
 
-def flatten_split_data(x_train, y_train, x_val, y_val, inserting_file_separators=True):
-    return flatten_array_of_arrays(x_train, inserting_file_separators=inserting_file_separators, features=True),\
-           flatten_array_of_arrays(y_train, inserting_file_separators=inserting_file_separators, features=False),\
-           flatten_array_of_arrays(x_val, inserting_file_separators=inserting_file_separators, features=True),\
-           flatten_array_of_arrays(y_val, inserting_file_separators=inserting_file_separators, features=False)
+def flatten_split_data(x_train, y_train, x_val, y_val, inserting_file_separators=True, printing=False):
+    return flatten_array_of_arrays(x_train, inserting_file_separators=inserting_file_separators,
+                                   features=True, printing=printing),\
+           flatten_array_of_arrays(y_train, inserting_file_separators=inserting_file_separators,
+                                   features=False, printing=printing),\
+           flatten_array_of_arrays(x_val, inserting_file_separators=inserting_file_separators,
+                                   features=True, printing=printing),\
+           flatten_array_of_arrays(y_val, inserting_file_separators=inserting_file_separators,
+                                   features=False, printing=printing)
 
 
 def make_dictionary_from_arrays(x, y, sources, printing=False):
@@ -326,7 +348,7 @@ def get_data_periodograms_flattened(midi_bins=False, nperseg=4096, noverlap=2048
         if os.path.isfile(f'wav_files/{file_name}'):
 
             # get the spectrogram of the audio file
-            _, _, spectrogram = get_spectrogram(f'{path}/{file_name}', midi_bins=midi_bins,
+            _, _, spectrogram = get_spectrogram(f'{path}/{file_name}', using_midi_bins=midi_bins,
                                                 nperseg=nperseg, noverlap=noverlap, strategy=strategy)
 
             # and get the ground-truth note for each periodogram in the spectrum
@@ -366,7 +388,7 @@ def get_data_periodograms_not_flattened(midi_bins=False, nperseg=4096, noverlap=
         if os.path.isfile(f'wav_files/{filename}'):
 
             # get the spectrogram of the audio file
-            _, _, spectrogram = get_spectrogram(f'{path}/{filename}', midi_bins=midi_bins,
+            _, _, spectrogram = get_spectrogram(f'{path}/{filename}', using_midi_bins=midi_bins,
                                                 nperseg=nperseg, noverlap=noverlap, strategy=strategy)
 
             # and get the ground-truth note for each periodogram in the spectrum
@@ -401,7 +423,7 @@ def get_data(encoding='midi_pitch', midi_bins=False, nperseg=4096, noverlap=2048
     for filename in os.listdir('wav_files'):
         if os.path.isfile(f'wav_files/{filename}'):
             # get the spectrogram of the audio file
-            f, t, sxx = get_spectrogram_scipy(f'{wav_path}/{filename}', midi_bins=midi_bins,
+            f, t, sxx = get_spectrogram_scipy(f'{wav_path}/{filename}', using_midi_bins=midi_bins,
                                               nperseg=nperseg, noverlap=noverlap)
             # and get the ground-truth note for each periodogram in the spectrum
             filename, _ = os.path.splitext(filename)  # remove file extension from the filename
@@ -771,7 +793,8 @@ def add_first_order_difference_old(x, printing=False):
 
 
 def add_first_order_difference(x, y, printing=False):
-    # this function is indifferent to whether or not x has already been reshaped to (x.shape[0], x.shape[1], 1)
+    # this function is indifferent to whether or not x has already been reshaped to (x.shape[0], x.shape[1], 1),
+    # but expects that the input is not flattened
 
     x_two_channels = np.empty(len(x), dtype=object)
     y_without_firsts = np.empty(len(y), dtype=object)
