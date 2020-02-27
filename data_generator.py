@@ -13,7 +13,7 @@ def print_note_info(input_note):
               f'{input_note.duration.type:<10} '
               f'{input_note.volume.velocity:>3}')
     elif type(input_note) is note.Rest:
-        print(f'Rest    '
+        print(f'rest    '
               + '{:<8}'.format(str(input_note.duration.quarterLength)) + ' '
               f'{input_note.duration.type:<10} ')
 
