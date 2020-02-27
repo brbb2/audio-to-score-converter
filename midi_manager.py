@@ -1,4 +1,6 @@
 import numpy as np
+from os.path import splitext
+from string import digits
 
 REST_ENCODING = -1
 
@@ -88,6 +90,14 @@ def decode_midi_pitch(midi_pitch, start=21, end=108):
         return pitch_name + str(octave)
 
 
+def encode_dictionary(dictionary, current_encoding=None, desired_encoding='label'):
+    for key in dictionary.keys():
+        dictionary[key]['ground_truth'] = encode_ground_truth_array(dictionary[key]['ground_truth'],
+                                                                    current_encoding=current_encoding,
+                                                                    desired_encoding=desired_encoding)
+    return dictionary
+
+
 def get_one_hot_midi_pitch_index(midi_pitch, start=21, end=108, putting_rests_last=False, low_last=False):
     number_of_pitches = end - start + 1
 
@@ -166,6 +176,22 @@ def interpret_one_hot(array, encoding='midi_pitch', start=21, end=108, putting_r
         return get_note_name(midi_pitch)
     else:
         return midi_pitch
+
+
+def encode_file_name(file_name, printing=False):
+
+    if file_name.endswith('.wav'):
+        file_name_without_extension = splitext(file_name)[0]
+    else:
+        file_name_without_extension = file_name
+
+    encoded_file_name = file_name_without_extension.rstrip(digits)
+
+    if printing:
+        print(f'original file name: {file_name}')
+        print(f' encoded file name: {encoded_file_name}')
+
+    return encoded_file_name
 
 
 def encode_note_name_array(ground_truth_array, encoding='midi_pitch', printing=False):
