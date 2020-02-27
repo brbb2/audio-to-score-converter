@@ -1,13 +1,14 @@
 import numpy as np
 from math import ceil
 from os import listdir
+from keras.utils import normalize
 from os.path import isfile, splitext
 from sklearn.model_selection import StratifiedShuffleSplit
 from audio_processor import get_window_parameters, get_spectrogram
 from ground_truth_converter import get_monophonic_ground_truth
 from midi_manager import encode_ground_truth_array
 from neural_network_trainer import print_shapes, print_counts_table, make_dictionary_from_arrays, flatten_split_data,\
-    reshape, split_dictionary, save_data_arrays
+    reshape, split_dictionary, save_data_arrays, print_split_data
 
 
 def load_audio_files_and_get_ground_truth(window_size, splitting_on_file_name=False, using_midi_bins=False,
@@ -150,7 +151,108 @@ def balance_rests(x, y, sources=None, encoding=None, printing=False):
         return x_new, y_new, sources
 
 
-def normalise(x):
+def normalise(x, strategy='k1', taking_logs=True,
+              spectral_powers_present=True, taking_spectral_powers_logs=True, spectral_powers_strategy='max',
+              first_order_differences_present=True,
+              printing=False):
+
+    if printing:
+        print(f'Before deconstruction:\n\nx: {x.shape}\n{x}\n\n')
+
+    spectral_powers = None
+    spectral_power_differences = None
+    spectral_power_differences_negatives = None
+    first_order_differences = None
+    first_order_differences_negatives = None
+
+    if spectral_powers_present and first_order_differences_present:
+        spectral_powers = x[:, -1, 0]
+        spectral_power_differences = x[:, -1, 1]
+        first_order_differences = x[:, :-1, 1]
+        x = x[:, :-1, 0]
+        spectral_powers = spectral_powers.reshape(-1, 1, 1)
+        spectral_power_differences = spectral_power_differences.reshape(-1, 1, 1)
+        first_order_differences = first_order_differences.reshape(first_order_differences.shape[0], -1, 1)
+    elif spectral_powers_present:
+        spectral_powers = x[:, -1]
+        x = x[:, :-1]
+        spectral_powers = spectral_powers.reshape(-1, 1, 1)
+    elif first_order_differences_present:
+        first_order_differences = x[:, :, 1]
+        x = x[:, :, 0]
+        first_order_differences = first_order_differences.reshape(first_order_differences.shape[0], -1, 1)
+    x = x.reshape(x.shape[0], -1, 1)
+
+    if printing:
+        print(f'Before normalisation:\n')
+        print(f'x: {x.shape}\n{x}\n')
+        if spectral_powers_present:
+            print(f'spectral_powers: {spectral_powers.shape}\n{spectral_powers}\n')
+        if spectral_powers_present and first_order_differences_present:
+            print(f'spectral_power_differences: {spectral_power_differences.shape}\n{spectral_power_differences}\n')
+        if first_order_differences_present:
+            print(f'first_order_differences: {first_order_differences.shape}\n{first_order_differences}\n\n')
+
+    if taking_logs:
+        x = np.log10(x)
+        if first_order_differences_present:
+            first_order_differences_negatives = np.array((first_order_differences < 0), dtype=int)
+            first_order_differences = np.log10(np.abs(first_order_differences))
+    if strategy == 'k1':
+        x = normalize(x, axis=1)
+        if first_order_differences_present:
+            first_order_differences = normalize(first_order_differences, axis=1)
+    elif strategy == 'k0':
+        x = normalize(x, axis=0)
+        if first_order_differences_present:
+            first_order_differences = normalize(first_order_differences, axis=0)
+    elif strategy == 'max':
+        x = x / np.amax(x)
+        if first_order_differences_present:
+            first_order_differences = first_order_differences / np.amax(first_order_differences)
+    if first_order_differences_present:
+        first_order_differences = np.concatenate((first_order_differences,
+                                                  first_order_differences_negatives), axis=2)
+
+    if spectral_powers_present:
+        if taking_spectral_powers_logs:
+            spectral_powers = np.log10(spectral_powers)
+            if first_order_differences_present:
+                spectral_power_differences_negatives = np.array((spectral_power_differences < 0), dtype=int)
+                spectral_power_differences = np.log10(np.abs(spectral_power_differences))
+        if spectral_powers_strategy == 'max':
+            spectral_powers = spectral_powers / np.amax(spectral_powers)
+            if first_order_differences_present:
+                spectral_power_differences = spectral_power_differences / np.amax(spectral_power_differences)
+        elif spectral_powers_strategy == 'k0':
+            spectral_powers = normalize(spectral_powers, axis=0)
+            if first_order_differences_present:
+                spectral_power_differences = normalize(spectral_power_differences, axis=0)
+        if first_order_differences_present:
+            spectral_power_differences = np.concatenate((spectral_power_differences,
+                                                         spectral_power_differences_negatives), axis=2)
+
+    if printing:
+        print(f'After normalisation:\n')
+        if spectral_powers_present:
+            print(f'spectral_powers: {spectral_powers.shape}\n{spectral_powers}\n')
+        if spectral_powers_present and first_order_differences_present:
+            print(f'spectral_power_differences: {spectral_power_differences.shape}\n{spectral_power_differences}\n')
+        if first_order_differences_present:
+            print(f'first_order_differences: {first_order_differences.shape}\n{first_order_differences}\n\n')
+
+    if spectral_powers_present and first_order_differences_present:
+        x = np.concatenate((x, spectral_powers), axis=1)
+        first_order_differences = np.concatenate((first_order_differences, spectral_power_differences), axis=1)
+        x = np.concatenate((x, first_order_differences), axis=2)
+    elif spectral_powers_present:
+        x = np.concatenate((x, spectral_powers), axis=1)
+    elif first_order_differences_present:
+        x = np.concatenate((x, first_order_differences), axis=2)
+
+    if printing:
+        print(f'After reconstruction\n\nx: {x.shape}\n{x}\n\n')
+
     return x
 
 
@@ -188,7 +290,7 @@ def split_on_file_names(dictionary):
 
 def get_data(window_size, splitting_on_file_name=True, adding_spectral_powers=True, adding_first_order_differences=True,
              balancing_rests=True, normalising=True, target_encoding='label', adding_file_separators=True,
-             saving=False, save_name=None, printing=False):
+             saving=False, save_name=None, printing=False, deep_printing=False):
 
     sources = None
 
@@ -199,10 +301,10 @@ def get_data(window_size, splitting_on_file_name=True, adding_spectral_powers=Tr
         x, y = load_audio_files_and_get_ground_truth(window_size, splitting_on_file_name=splitting_on_file_name)
 
     if adding_spectral_powers:
-        x = add_spectral_powers(x, printing=printing)
+        x = add_spectral_powers(x, printing=deep_printing)
 
     if adding_first_order_differences:
-        x, y, sources = add_first_order_differences(x, y, sources, printing=printing)
+        x, y, sources = add_first_order_differences(x, y, sources, printing=deep_printing)
     else:
         x = reshape(x)  # set up x for a single channel if it has not been so already
 
@@ -213,16 +315,20 @@ def get_data(window_size, splitting_on_file_name=True, adding_spectral_powers=Tr
             x, y = balance_rests(x, y)
 
     if normalising:  # must be written to work for channels
-        x = normalise(x)
+        x = normalise(x, printing=deep_printing)
 
     y = encode(y, target_encoding)
 
     if splitting_on_file_name:
         dictionary = make_dictionary_from_arrays(x, y, sources)
         x_train, y_train, x_val, y_val = split_on_file_names(dictionary)
-        x_train, y_train, x_val, y_val = flatten_split_data(x_train, y_train, x_val, y_val, adding_file_separators)
+        x_train, y_train, x_val, y_val = flatten_split_data(x_train, y_train, x_val, y_val, adding_file_separators,
+                                                            printing=deep_printing)
     else:
         x_train, y_train, x_val, y_val = split(x, y)
+
+    if printing:
+        print_split_data(x_train, y_train, x_val, y_val)
 
     if saving and save_name is not None:
         save_data_arrays(x_train, y_train, x_val, y_val, version=save_name)
@@ -231,7 +337,7 @@ def get_data(window_size, splitting_on_file_name=True, adding_spectral_powers=Tr
 
 
 def main():
-    get_data(50, printing=True)
+    get_data(50, balancing_rests=True, printing=True, deep_printing=True)
 
 
 if __name__ == '__main__':
