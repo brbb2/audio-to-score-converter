@@ -13,6 +13,10 @@ window_size_parameters = {
 }
 
 
+def get_window_parameters(window_size):
+    return window_size_parameters[window_size]['nperseg'], window_size_parameters[window_size]['noverlap']
+
+
 def get_audio_signal(wav_file):
     wav = wave.open(wav_file, 'r')
     signal = wav.readframes(-1)
@@ -67,7 +71,8 @@ def print_spectrogram(spectrum, frequencies, t):
     print(t)
 
 
-def get_spectrogram_scipy(wav_file, window='hamming', nperseg=4096, noverlap=2048, printing=False, midi_bins=False):
+def get_spectrogram_scipy(wav_file, window='hamming', nperseg=4096, noverlap=2048, printing=False,
+                          using_midi_bins=False):
     wav = wave.open(wav_file, 'r')
     signal = wav.readframes(-1)
     signal = np.frombuffer(signal, dtype=np.int32)
@@ -76,7 +81,7 @@ def get_spectrogram_scipy(wav_file, window='hamming', nperseg=4096, noverlap=204
     f, t, sxx = scipy.signal.spectrogram(signal, wav.getframerate(),
                                          window=window, nperseg=nperseg, noverlap=noverlap)
 
-    if midi_bins:
+    if using_midi_bins:
         sxx = merge_frequencies(sxx, f)
 
     if printing:
@@ -150,11 +155,11 @@ def get_spectrogram_numpy(wav_file, window_size=0.2, sampling_frequency=44100, p
 
 
 def get_spectrogram(wav_file, strategy='scipy', window='hamming', nperseg=4096, noverlap=2048,
-                    printing=False, midi_bins=False, seconds=True):
+                    printing=False, using_midi_bins=False, seconds=True):
     if strategy == 'scipy':
         frequencies, times, spectrogram = get_spectrogram_scipy(wav_file, window=window, nperseg=nperseg,
                                                                 noverlap=noverlap, printing=printing,
-                                                                midi_bins=midi_bins)
+                                                                using_midi_bins=using_midi_bins)
     elif strategy == 'pyplot':
         spectrogram, frequencies, times, _ = get_spectrogram_pyplot(wav_file, nfft=nperseg, noverlap=noverlap,
                                                                     seconds=seconds, printing=printing)
@@ -167,7 +172,7 @@ def plot_spectrogram_scipy(wav_file, window='hamming', nperseg=4096, noverlap=20
                            showing=True, printing=False):
 
     f, t, sxx = get_spectrogram_scipy(wav_file, window=window, nperseg=nperseg, noverlap=noverlap,
-                                      midi_bins=midi, printing=printing)
+                                      using_midi_bins=midi, printing=printing)
 
     plt.figure()
     plt.title(f'scipy.signal.spectrogram\n\"{wav_file}\"')
