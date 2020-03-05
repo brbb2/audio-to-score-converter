@@ -18,8 +18,12 @@ def print_note_info(input_note):
               f'{input_note.duration.type:<10} ')
 
 
-def get_random_length():
+def get_random_length_old():
     return random.randint(1, 32) / random.randint(1, 32)
+
+
+def get_random_length(maximum_quarter_length=4):
+    return random.randint(1, 4 * maximum_quarter_length) / 4.0
 
 
 def get_rest_stream():
@@ -66,7 +70,7 @@ def generate_midi_single_notes(samples=10, start=0, octaves=9, pitches=12, print
                 note_length = get_random_length()
                 s = get_single_note_stream(note_pitch, octave, note_length, random.randint(1, 128))
                 filename = f'single_{pitch_values[note_pitch]}{octave}_{start+i}'
-                s.write('midi', f'midi_files/{filename}.mid')
+                s.write('midi', f'midi_files_simple/{filename}.mid')
                 if printing:
                     print(f'{filename}.mid')
 
@@ -75,12 +79,12 @@ def generate_wav_files_from_all_midi_files():
     make_all_wavs()
 
 
-def generate_xml_files_from_all_midi_files():
-    for filename in os.listdir('midi_files'):
+def generate_xml_files_from_all_midi_files(midi_directory='midi_files', xml_directory='xml_files'):
+    for filename in os.listdir(midi_directory):
         filename, _ = os.path.splitext(filename)
         print(filename)
-        s = converter.parse(f'midi_files/{filename}.mid')
-        s.write('musicxml', f'xml_files/{filename}.musicxml')
+        s = converter.parse(f'{midi_directory}/{filename}.mid')
+        s.write('musicxml', f'{xml_directory}/{filename}.musicxml')
 
 
 def main():
@@ -88,11 +92,12 @@ def main():
     # print(pitch_values[6])
     # example()
     # generate_wav(s, 'midi_files/demo', 'soundfonts/FluidR3_GM.sf2')
-    # generate_midi_single_notes(samples=2, start=12, printing=True)
+    # generate_midi_single_notes(samples=10, start=0, printing=True)
     # generate_midi_rests()
     # example_note('C8')
     # get_xml_from_midi()
     # generate_midi_rests(samples=1)
+    generate_xml_files_from_all_midi_files(midi_directory='midi_files_simple', xml_directory='xml_files_simple')
     pass
 
 
