@@ -12,27 +12,24 @@ from neural_network_trainer import print_shapes, print_counts_table, make_dictio
 
 
 def load_audio_files_and_get_ground_truth(window_size, splitting_on_file_name=False, using_midi_bins=False,
-                                          fft_strategy='scipy'):
+                                          fft_strategy='scipy', wav_directory='wav_files', xml_directory='xml_files'):
 
     x_list = list()
     y_list = list()
     sources = list()
 
-    nperseg, noverlap = get_window_parameters(window_size)
-
     # for each wav file in the data directory
-    for file_name in listdir('wav_files'):
-        if isfile(f'wav_files/{file_name}'):
+    for file_name in listdir(wav_directory):
+        if isfile(f'{wav_directory}/{file_name}'):
 
             # get the spectrogram of the audio file
-            _, _, spectrogram = get_spectrogram(f'wav_files/{file_name}', using_midi_bins=using_midi_bins,
-                                                nperseg=nperseg, noverlap=noverlap, strategy=fft_strategy)
+            _, _, spectrogram = get_spectrogram(f'{wav_directory}/{file_name}', using_midi_bins=using_midi_bins,
+                                                window_size=window_size, strategy=fft_strategy)
 
             # and get the ground-truth note for each periodogram in the spectrum
             file_name, _ = splitext(file_name)  # remove file extension from the filename
-            ground_truth = get_monophonic_ground_truth(f'wav_files/{file_name}.wav', f'xml_files/{file_name}.musicxml',
-                                                       encoding=None,
-                                                       nperseg=nperseg, noverlap=noverlap)
+            ground_truth = get_monophonic_ground_truth(file_name, window_size=window_size,
+                                                       wav_path=wav_directory, xml_path=xml_directory)
 
             # add each periodogram and its corresponding note to x_list and y_list respectively,
             # inserting data at the front of the lists for efficiency
@@ -288,17 +285,21 @@ def split_on_file_names(dictionary):
     return x_train, y_train, x_val, y_val  # not flat
 
 
-def get_data(window_size, splitting_on_file_name=True, adding_spectral_powers=True, adding_first_order_differences=True,
+def get_data(window_size, wav_directory='wav_files', xml_directory='xml_files',
+             splitting_on_file_name=True, adding_spectral_powers=True, adding_first_order_differences=True,
              balancing_rests=True, normalising=True, target_encoding='label', adding_file_separators=True,
              saving=False, save_name=None, printing=False, deep_printing=False):
 
     sources = None
 
     if splitting_on_file_name or adding_first_order_differences:
-        x, y, sources = load_audio_files_and_get_ground_truth(window_size,
-                                                              splitting_on_file_name=splitting_on_file_name)
+        x, y, sources = load_audio_files_and_get_ground_truth(window_size, wav_directory=wav_directory,
+                                                              xml_directory=xml_directory,
+                                                              splitting_on_file_name=splitting_on_file_name,)
     else:
-        x, y = load_audio_files_and_get_ground_truth(window_size, splitting_on_file_name=splitting_on_file_name)
+        x, y = load_audio_files_and_get_ground_truth(window_size, wav_directory=wav_directory,
+                                                     xml_directory=xml_directory,
+                                                     splitting_on_file_name=splitting_on_file_name)
 
     if adding_spectral_powers:
         x = add_spectral_powers(x, printing=deep_printing)
@@ -314,10 +315,11 @@ def get_data(window_size, splitting_on_file_name=True, adding_spectral_powers=Tr
         else:
             x, y = balance_rests(x, y)
 
-    if normalising:  # must be written to work for channels
-        x = normalise(x, printing=deep_printing)
+    if normalising:
+        x = normalise(x, printing=deep_printing, spectral_powers_present=adding_spectral_powers,
+                      first_order_differences_present=adding_first_order_differences)
 
-    y = encode(y, target_encoding)
+    y = encode(y, target_encoding=target_encoding)
 
     if splitting_on_file_name:
         dictionary = make_dictionary_from_arrays(x, y, sources)
@@ -337,7 +339,11 @@ def get_data(window_size, splitting_on_file_name=True, adding_spectral_powers=Tr
 
 
 def main():
-    get_data(50, balancing_rests=True, printing=True, deep_printing=True)
+    get_data(50, wav_directory='wav_files_simple', xml_directory='xml_files_simple',
+             balancing_rests=False, adding_first_order_differences=False,
+             splitting_on_file_name=False,
+             printing=True, deep_printing=True,
+             saving=True, save_name='debugged')
 
 
 if __name__ == '__main__':
