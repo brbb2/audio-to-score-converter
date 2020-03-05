@@ -617,6 +617,10 @@ def get_model_definition(model_name, x_shape, printing=False):
         model = get_model_midi(x_shape, printing=printing)
     elif model_name == 'midi_dropout':
         model = get_model_midi_dropout(x_shape, printing=printing)
+    elif model_name == 'freq_dense':
+        model = get_model_freq_dense(x_shape, printing=printing)
+    elif model_name == 'midi_dense':
+        model = get_model_midi_dense(x_shape, printing=printing)
     elif model_name == 'rnn':
         model = get_model_midi_rnn(x_shape, printing=printing)
     elif model_name == 'baseline3':
@@ -973,7 +977,7 @@ def get_spectral_powers(x, printing=False):
 
 
 def main():
-    # x, y = get_data_periodograms_flattened(midi_bins=True, nperseg=8192, noverlap=4096)
+    # x, y = get_data_periodograms_flattened(midi_bins=False, nperseg=4096, noverlap=2048)
     # x, y = remove_excess_rests(x, y)
     # spectral_powers = get_spectral_powers(x)
     # spectral_powers = normalise(spectral_powers, strategy='max', taking_logs=False)
@@ -982,20 +986,21 @@ def main():
     # x = np.concatenate((x, spectral_powers), axis=1)
     # x = x.reshape(x.shape[0], x.shape[1], 1)
     # x_train, y_train, x_val, y_val = split_data(x, y)
-    # print_split_data(x_train, y_train, x_val, y_val)
-    # train('midi', 'label_midi_100ms_remove_rests_10_powers_log_k1_norm_filters_128_powers_max_norm', x_train, y_train, x_val, y_val, printing=True, patience=10)
-
-    x, y = get_data_periodograms_not_flattened(midi_bins=True, nperseg=8192, noverlap=4096)
-    x, y = add_first_order_difference(x, y)
-    x, y = remove_excess_rests(x, y)  # needs adaption to not flattened
-    spectral_powers = get_spectral_powers(x)  # needs adaption to not flattened
-    spectral_powers = normalise(spectral_powers, strategy='max', taking_logs=False)
-    x = normalise(x, strategy='k1', taking_logs=True)  # needs adaption to not flattened
-    y = midi_manager.encode_ground_truth_array(y, current_encoding=None, desired_encoding='label')
-    x = np.concatenate((x, spectral_powers), axis=1)
-    x = x.reshape(x.shape[0], x.shape[1], 1)
-    x_train, y_train, x_val, y_val = split_data(x, y)
+    x_train, y_train, x_val, y_val = load_data_arrays('debugged')
     print_split_data(x_train, y_train, x_val, y_val)
+    train('freq_dense', 'label_freq_050ms_remove_rests_10_powers_log_k1_norm_dense_debugged', x_train, y_train, x_val, y_val, printing=True, patience=10)
+
+    # x, y = get_data_periodograms_not_flattened(midi_bins=True, nperseg=8192, noverlap=4096)
+    # x, y = add_first_order_difference(x, y)
+    # x, y = remove_excess_rests(x, y)  # needs adaption to not flattened
+    # spectral_powers = get_spectral_powers(x)  # needs adaption to not flattened
+    # spectral_powers = normalise(spectral_powers, strategy='max', taking_logs=False)
+    # x = normalise(x, strategy='k1', taking_logs=True)  # needs adaption to not flattened
+    # y = midi_manager.encode_ground_truth_array(y, current_encoding=None, desired_encoding='label')
+    # x = np.concatenate((x, spectral_powers), axis=1)
+    # x = x.reshape(x.shape[0], x.shape[1], 1)
+    # x_train, y_train, x_val, y_val = split_data(x, y)
+    # print_split_data(x_train, y_train, x_val, y_val)
 
     # train('dropout', 'label_midi_025ms_dropout_0.2_patience_10',
     #       x_train, y_train, x_val, y_val, printing=True, patience=10)
