@@ -6,9 +6,62 @@ from os.path import isfile, splitext
 from sklearn.model_selection import StratifiedShuffleSplit
 from audio_processor import get_window_parameters, get_spectrogram
 from ground_truth_converter import get_monophonic_ground_truth
-from midi_manager import encode_ground_truth_array
+from encoder import encode_ground_truth_array, get_bof_artificial_periodogram, get_eof_artificial_periodogram
 from neural_network_trainer import print_shapes, print_counts_table, make_dictionary_from_arrays, flatten_split_data,\
     reshape, split_dictionary, save_data_arrays, print_split_data
+
+
+def get_maximum_number_of_windows(sources, printing=False):
+    maximum_number_of_windows = 0
+    number_of_windows_for_current_source = 0
+    i = 0
+    while i < len(sources):
+        current_source = sources[i]
+        while i < len(sources) and sources[i] == current_source:
+            number_of_windows_for_current_source += 1
+            i += 1
+        if number_of_windows_for_current_source > maximum_number_of_windows:
+            maximum_number_of_windows = number_of_windows_for_current_source
+        if printing:
+            print(f'number of windows for \"{current_source}\": {number_of_windows_for_current_source:>4}')
+        number_of_windows_for_current_source = 0
+    if printing:
+        print(f'\nmaximum number of windows: {maximum_number_of_windows}\n')
+    return maximum_number_of_windows
+
+
+def reshape_split_data_for_rnn(x_train, y_train, x_val, y_val, maximum_number_of_windows):
+    maximum_number_of_windows += 2  # add two to account for the obligatory BoF and EoF markers
+    number_of_bins = x_train[0].shape[1]
+
+    x_train_reshaped = np.zeros(shape=(len(x_train), maximum_number_of_windows, number_of_bins))
+    y_train_reshaped = np.zeros(shape=(len(y_train), maximum_number_of_windows, 1))
+    x_val_reshaped = np.zeros(shape=(len(x_val), maximum_number_of_windows, number_of_bins))
+    y_val_reshaped = np.zeros(shape=(len(y_val), maximum_number_of_windows, 1))
+
+    # initialise all arrays by filling them with EoF data
+    x_train_reshaped[:, :] = get_eof_artificial_periodogram(number_of_bins)
+    y_train_reshaped[:, :] = 'EoF'
+    x_val_reshaped[:, :] = get_eof_artificial_periodogram(number_of_bins)
+    y_val_reshaped[:, :] = 'EoF'
+
+    # set the first window of every file to BoF data
+    x_train_reshaped[:, 0] = get_bof_artificial_periodogram(number_of_bins)
+    y_train_reshaped[:, 0] = 'BoF'
+    x_val_reshaped[:, 0] = get_bof_artificial_periodogram(number_of_bins)
+    y_val_reshaped[:, 0] = 'BoF'
+
+    for i in range(len(x_train)):
+        x_train_i = x_train[i].reshape(x_train.shape[:-1])
+        x_train_reshaped[i, 1:1 + len(x_train_i), :] = x_train_i
+        y_train_reshaped[i, 1:1 + len(x_train_i)] = y_train[i]
+
+    for i in range(len(x_val)):
+        x_val_i = x_val[i].reshape(x_val.shape[:-1])
+        x_val_reshaped[i, 1:1+len(x_val_i), :] = x_val_i
+        y_val_reshaped[i, 1:1+len(x_val_i)] = y_val[i]
+
+    return x_train_reshaped, y_train_reshaped, x_val_reshaped, y_val_reshaped
 
 
 def load_audio_files_and_get_ground_truth(window_size, splitting_on_file_name=False, using_midi_bins=False,
@@ -280,8 +333,8 @@ def split(x, y, n_splits=1, test_size=0.1, printing=False):
     return x_train, y_train, x_val, y_val  # flat
 
 
-def split_on_file_names(dictionary):
-    x_train, y_train, x_val, y_val = split_dictionary(dictionary)
+def split_on_file_names(dictionary, printing=False):
+    x_train, y_train, x_val, y_val = split_dictionary(dictionary, printing=printing)
     return x_train, y_train, x_val, y_val  # not flat
 
 
@@ -295,7 +348,7 @@ def get_data(window_size, wav_directory='wav_files', xml_directory='xml_files',
     if splitting_on_file_name or adding_first_order_differences:
         x, y, sources = load_audio_files_and_get_ground_truth(window_size, wav_directory=wav_directory,
                                                               xml_directory=xml_directory,
-                                                              splitting_on_file_name=splitting_on_file_name,)
+                                                              splitting_on_file_name=splitting_on_file_name)
     else:
         x, y = load_audio_files_and_get_ground_truth(window_size, wav_directory=wav_directory,
                                                      xml_directory=xml_directory,
@@ -323,9 +376,18 @@ def get_data(window_size, wav_directory='wav_files', xml_directory='xml_files',
 
     if splitting_on_file_name:
         dictionary = make_dictionary_from_arrays(x, y, sources)
-        x_train, y_train, x_val, y_val = split_on_file_names(dictionary)
+        x_train, y_train, x_val, y_val = split_on_file_names(dictionary, printing=deep_printing)
+        print('SHAPE')
+        print('SHAPE')
+        print('SHAPE')
+        print('SHAPE')
+        print(x_train.shape, y_train.shape, x_val.shape, y_val.shape)
+        print('SHAPE')
+        print('SHAPE')
+        print('SHAPE')
+        print('SHAPE')
         x_train, y_train, x_val, y_val = flatten_split_data(x_train, y_train, x_val, y_val, adding_file_separators,
-                                                            printing=deep_printing)
+                                                            encoding=target_encoding, printing=deep_printing)
     else:
         x_train, y_train, x_val, y_val = split(x, y)
 
@@ -341,9 +403,12 @@ def get_data(window_size, wav_directory='wav_files', xml_directory='xml_files',
 def main():
     get_data(50, wav_directory='wav_files_simple', xml_directory='xml_files_simple',
              balancing_rests=False, adding_first_order_differences=False,
-             splitting_on_file_name=False,
+             splitting_on_file_name=True, adding_file_separators=False,
              printing=True, deep_printing=True,
-             saving=True, save_name='debugged')
+             saving=False, save_name='RNN_split_on_file_names_unbalanced_with_powers')
+    # _, _, sources = load_audio_files_and_get_ground_truth(50, wav_directory='wav_files_simple',
+    #                                                       xml_directory='xml_files_simple', splitting_on_file_name=True)
+    # get_maximum_number_of_windows(sources, printing=True)
 
 
 if __name__ == '__main__':
