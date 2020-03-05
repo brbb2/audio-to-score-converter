@@ -1,7 +1,7 @@
 from music21 import *
 import random
 import os
-from midi_manager import pitch_offset_names as pitch_values
+from encoder import pitch_offset_names as pitch_values
 from midi_to_wav_converter import make_all_wavs
 
 
