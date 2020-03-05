@@ -3,6 +3,7 @@ from os.path import splitext
 from string import digits
 
 REST_ENCODING = -1
+EoF_ENCODING = -2
 
 pitch_offsets = {
     'C': 0,
@@ -41,6 +42,8 @@ def get_pitch_array(start=21, end=108):
 def get_midi_pitch(note_name, printing=False):
     if note_name == 'rest' or note_name == 'Rest':
         return REST_ENCODING
+    elif note_name == 'EoF' or note_name == 'eof' or note_name == 'EOF':
+        return EoF_ENCODING
     if len(note_name) < 2 or 3 < len(note_name):
         print('error')
     else:
@@ -71,6 +74,8 @@ def get_midi_pitch(note_name, printing=False):
 def get_note_name(midi_pitch, start=21, end=108):
     if midi_pitch == REST_ENCODING:
         return 'rest'
+    elif midi_pitch == EoF_ENCODING:
+        return 'EoF'
     if midi_pitch < start or end < midi_pitch:
         print('error')
     else:
@@ -82,6 +87,8 @@ def get_note_name(midi_pitch, start=21, end=108):
 def decode_midi_pitch(midi_pitch, start=21, end=108):
     if midi_pitch == REST_ENCODING:
         return 'rest'
+    elif midi_pitch == EoF_ENCODING:
+        return 'EoF'
     if midi_pitch < start or end < midi_pitch:
         print('error')
     else:
