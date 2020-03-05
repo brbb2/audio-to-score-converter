@@ -261,7 +261,7 @@ def plot_pitch_probability(note, example, midi_pitch, model_name, method='scipy'
 
 
 def plot_all_pitch_probabilities(note, example, model_name, start=21, end=108, method='scipy', showing=True):
-    plot_pitch_probability(note, example, midi_manager.REST_ENCODING, 'one_hot_freq_050ms', plotting_new_figure=False,
+    plot_pitch_probability(note, example, midi_manager.REST_ENCODING, 'new3', plotting_new_figure=False,
                            plotting_legend=True, showing=False)
     for i in range(start, end+1):
         plot_pitch_probability(note, example, i, model_name, method=method, plotting_new_figure=False,
@@ -347,12 +347,14 @@ def main():
     # separated_notes_sorted = get_sorted_notes(pitches, spectrum, t, 0.7)
     # print(separated_notes_sorted)
     # print()
-    plot_pitch_accuracies('label_freq_050ms', 'label_freq_050ms', alpha=0.5, showing=False, plotting_new_figure=False)
-    plot_pitch_accuracies('label_freq_200ms', 'label_freq_200ms', alpha=0.5, showing=False, plotting_new_figure=False)
+    # plot_pitch_accuracies('label_freq_050ms', 'label_freq_050ms_remove_rests', alpha=0.5, showing=False,
+    #                       plotting_new_figure=False)
+    plot_pitch_accuracies('label_midi_050ms_remove_rests_10_powers_log_k1_norm_dense_4', 'label_midi_050ms_remove_rests_10_powers_log_k1_norm_dense_4', alpha=0.5, showing=False, plotting_new_figure=False)
     # plot_wav_prediction('C4', 0, 'one_hot_freq_050ms', plotting_spectrogram=True, method='pyplot')
-    # plot_pitch_probability('C8', 2, 108, 'one_hot_freq_050ms', showing=False)
-    # plot_all_pitch_probabilities('C7', 0, 'one_hot_freq_050ms')
-    plt.title(f'Pitch accuracies for each MIDI pitch\nwith models \"label_freq_050ms\" and \"label_freq_200ms\"')
+    # plot_pitch_probability('C4', 3, 60, 'new3', showing=False)
+    # plot_all_pitch_probabilities('C4', 3, 'new3')
+    # create_comparison_text_file('single_C4_3', 'new3')
+    plt.title(f'Pitch accuracies for each MIDI pitch\nwith models \"label_freq_050ms\" and \"label_freq_050ms_remove_rests\"')
     plt.xlabel('MIDI pitch')
     plt.ylabel('Accuracy')
     plt.legend()
