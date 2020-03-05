@@ -2,8 +2,12 @@ import numpy as np
 from os.path import splitext
 from string import digits
 
-REST_ENCODING = -1
-EoF_ENCODING = -2
+REST_MIDI_ENCODING = -1
+BoF_MIDI_ENCODING = -2
+EoF_MIDI_ENCODING = -3
+REST_LABEL_ENCODING = 0
+BoF_LABEL_ENCODING = 89
+EoF_LABEL_ENCODING = 90
 
 pitch_offsets = {
     'C': 0,
@@ -35,15 +39,43 @@ pitch_offset_names = {
 }
 
 
+def get_bof_artificial_periodogram(shape, printing=False):
+    artificial_periodogram = np.full(shape=shape, fill_value=-0.5)
+    artificial_periodogram[::2] = 0
+    if printing:
+        print(artificial_periodogram)
+    return artificial_periodogram
+
+
+def get_eof_artificial_periodogram(shape, printing=False):
+    artificial_periodogram = np.full(shape=shape, fill_value=-1.0)
+    artificial_periodogram[::3] = 0
+    if printing:
+        print(artificial_periodogram)
+    return artificial_periodogram
+
+
+def get_number_of_unique_labels(start=21, end=108, for_rnn=True, printing=False):
+    number_of_unique_pitches = end - start + 1
+    number_of_unique_labels = number_of_unique_pitches + 1
+    if for_rnn:
+        number_of_unique_labels += 3
+    if printing:
+        print(f'number of unique labels: {number_of_unique_labels:>3}')
+    return number_of_unique_labels
+
+
 def get_pitch_array(start=21, end=108):
-    return np.concatenate((np.array([REST_ENCODING]), range(start, end+1)), 0)
+    return np.concatenate((np.array([REST_MIDI_ENCODING]), range(start, end + 1)), 0)
 
 
 def get_midi_pitch(note_name, printing=False):
     if note_name == 'rest' or note_name == 'Rest':
-        return REST_ENCODING
+        return REST_MIDI_ENCODING
+    elif note_name == 'BoF' or note_name == 'bof' or note_name == 'BOF':
+        return BoF_MIDI_ENCODING
     elif note_name == 'EoF' or note_name == 'eof' or note_name == 'EOF':
-        return EoF_ENCODING
+        return EoF_MIDI_ENCODING
     if len(note_name) < 2 or 3 < len(note_name):
         print('error')
     else:
@@ -72,9 +104,11 @@ def get_midi_pitch(note_name, printing=False):
 
 
 def get_note_name(midi_pitch, start=21, end=108):
-    if midi_pitch == REST_ENCODING:
+    if midi_pitch == REST_MIDI_ENCODING:
         return 'rest'
-    elif midi_pitch == EoF_ENCODING:
+    elif midi_pitch == BoF_MIDI_ENCODING:
+        return 'BoF'
+    elif midi_pitch == EoF_MIDI_ENCODING:
         return 'EoF'
     if midi_pitch < start or end < midi_pitch:
         print('error')
@@ -85,9 +119,11 @@ def get_note_name(midi_pitch, start=21, end=108):
 
 
 def decode_midi_pitch(midi_pitch, start=21, end=108):
-    if midi_pitch == REST_ENCODING:
+    if midi_pitch == REST_MIDI_ENCODING:
         return 'rest'
-    elif midi_pitch == EoF_ENCODING:
+    elif midi_pitch == BoF_MIDI_ENCODING:
+        return 'BoF'
+    elif midi_pitch == EoF_MIDI_ENCODING:
         return 'EoF'
     if midi_pitch < start or end < midi_pitch:
         print('error')
@@ -107,8 +143,11 @@ def encode_dictionary(dictionary, current_encoding=None, desired_encoding='label
 
 def get_one_hot_midi_pitch_index(midi_pitch, start=21, end=108, putting_rests_last=False, low_last=False):
     number_of_pitches = end - start + 1
-
-    if midi_pitch == REST_ENCODING:
+    if midi_pitch == BoF_MIDI_ENCODING:
+        i = number_of_pitches + 1
+    elif midi_pitch == EoF_MIDI_ENCODING:
+            i = number_of_pitches + 2
+    elif midi_pitch == REST_MIDI_ENCODING:
         if putting_rests_last:
             i = number_of_pitches  # set the index to put the rest at the end of the one-hot array
         else:
@@ -124,11 +163,42 @@ def get_one_hot_midi_pitch_index(midi_pitch, start=21, end=108, putting_rests_la
     return i
 
 
+def decode_label(label):
+    if label == REST_LABEL_ENCODING:
+        return 'rest'
+    elif label == BoF_LABEL_ENCODING:
+        return 'BoF'
+    elif label == EoF_LABEL_ENCODING:
+        return 'EoF'
+    else:
+        return decode_midi_pitch(label + 20)
+
+
+def midi_pitch_encode_label(label):
+    if label == REST_LABEL_ENCODING:
+        return REST_MIDI_ENCODING
+    elif label == BoF_LABEL_ENCODING:
+        return BoF_MIDI_ENCODING
+    elif label == EoF_LABEL_ENCODING:
+        return EoF_MIDI_ENCODING
+    else:
+        return label + 20
+
+
+def one_hot_encode_label(label, for_rnn=False):
+    midi_pitch = midi_pitch_encode_label(label)
+    return one_hot_encode_midi_pitch(midi_pitch, for_rnn=for_rnn)
+
+
 def label_encode_midi_pitch(midi_pitch, start=21, end=108, putting_rests_last=False, low_last=False):
     number_of_pitches = end - start + 1
 
+    if midi_pitch == BoF_MIDI_ENCODING:
+        return number_of_pitches + 1
+    elif midi_pitch == EoF_MIDI_ENCODING:
+        return number_of_pitches + 2
     if putting_rests_last:
-        if midi_pitch == REST_ENCODING:
+        if midi_pitch == REST_MIDI_ENCODING:
             return number_of_pitches
         else:
             if low_last:
@@ -136,7 +206,7 @@ def label_encode_midi_pitch(midi_pitch, start=21, end=108, putting_rests_last=Fa
             else:
                 return midi_pitch - start
     else:
-        if midi_pitch == REST_ENCODING:
+        if midi_pitch == REST_MIDI_ENCODING:
             return 0
         else:
             if low_last:
@@ -145,9 +215,13 @@ def label_encode_midi_pitch(midi_pitch, start=21, end=108, putting_rests_last=Fa
                 return midi_pitch - start + 1
 
 
-def one_hot_encode_midi_pitch(midi_pitch, start=21, end=108, putting_rests_last=False, low_last=False):
+def one_hot_encode_midi_pitch(midi_pitch, start=21, end=108, putting_rests_last=False, low_last=False,
+                              for_rnn=False):
     number_of_pitches = end - start + 1
-    one_hot_encoding = np.zeros(number_of_pitches + 1)
+    if for_rnn:
+        one_hot_encoding = np.zeros(number_of_pitches + 3)
+    else:
+        one_hot_encoding = np.zeros(number_of_pitches + 1)
 
     i = get_one_hot_midi_pitch_index(midi_pitch, start=start, end=end,
                                      putting_rests_last=putting_rests_last, low_last=low_last)
@@ -164,7 +238,7 @@ def interpret_one_hot(array, encoding='midi_pitch', start=21, end=108, putting_r
         print(f'The maximum value in the array occurs at index {i:>2}')
     if putting_rests_last:
         if i == number_of_pitches:
-            midi_pitch = REST_ENCODING
+            midi_pitch = REST_MIDI_ENCODING
         else:
             if low_last:
                 midi_pitch = end - i
@@ -172,7 +246,7 @@ def interpret_one_hot(array, encoding='midi_pitch', start=21, end=108, putting_r
                 midi_pitch = start + i
     else:
         if i == 0:
-            midi_pitch = REST_ENCODING
+            midi_pitch = REST_MIDI_ENCODING
         else:
             if low_last:
                 midi_pitch = end - i + 1
@@ -221,7 +295,7 @@ def encode_note_name_array(ground_truth_array, encoding='midi_pitch', printing=F
 
 
 def encode_ground_truth_array(ground_truth_array, current_encoding=None, desired_encoding='midi_pitch',
-                              printing=False):
+                              for_rnn=False):
     if current_encoding is None:
         midi_pitch_encoded_array = np.vectorize(get_midi_pitch)(ground_truth_array)
         if desired_encoding is None:
@@ -231,7 +305,7 @@ def encode_ground_truth_array(ground_truth_array, current_encoding=None, desired
         elif desired_encoding == 'label':
             return np.vectorize(label_encode_midi_pitch)(midi_pitch_encoded_array)
         elif desired_encoding == 'one_hot':
-            return np.vectorize(one_hot_encode_midi_pitch, otypes=[object])(midi_pitch_encoded_array)
+            return np.vectorize(one_hot_encode_midi_pitch, otypes=[object])(midi_pitch_encoded_array, for_rnn=for_rnn)
     elif current_encoding == 'midi_pitch':
         if desired_encoding is None:
             return np.vectorize(get_note_name)(ground_truth_array)
@@ -240,20 +314,20 @@ def encode_ground_truth_array(ground_truth_array, current_encoding=None, desired
         elif desired_encoding == 'label':
             return np.vectorize(label_encode_midi_pitch)(ground_truth_array)
         elif desired_encoding == 'one_hot':
-            return np.vectorize(one_hot_encode_midi_pitch, otypes=[object])(ground_truth_array)
+            return np.vectorize(one_hot_encode_midi_pitch, otypes=[object])(ground_truth_array, for_rnn=for_rnn)
     elif current_encoding == 'label':
         if desired_encoding is None:
-            pass
+            return np.vectorize(decode_label)(ground_truth_array)
         elif desired_encoding == 'midi_pitch':
-            pass
+            return np.vectorize(midi_pitch_encode_label)(ground_truth_array)
         elif desired_encoding == 'label':
             return ground_truth_array
         elif desired_encoding == 'one_hot':
-            pass
+            return np.vectorize(one_hot_encode_label, otypes=[object])(ground_truth_array, for_rnn=for_rnn)
     elif current_encoding == 'one_hot':
-        midi_pitch_encoded_array = np.vectorize(interpret_one_hot, otypes=int)(ground_truth_array)
+        midi_pitch_encoded_array = np.vectorize(interpret_one_hot)(ground_truth_array)
         if desired_encoding is None:
-            return np.vectorize(interpret_one_hot(encoding=None), otypes=int)(ground_truth_array)
+            return np.vectorize(interpret_one_hot)(ground_truth_array, encoding=None)
         elif desired_encoding == 'midi_pitch':
             return midi_pitch_encoded_array
         elif desired_encoding == 'label':
@@ -263,9 +337,10 @@ def encode_ground_truth_array(ground_truth_array, current_encoding=None, desired
 
 
 def main():
-    test_array = np.array(['C4', 'rest', 'A-1', 'F#7'])
-    a = encode_ground_truth_array(test_array, current_encoding=None, desired_encoding='label', printing=True)
-    print(a)
+    test_array = np.array(['BoF', 'rest', 'C4', 'A-1', 'F#7', 'EoF'])
+    output_array = encode_ground_truth_array(test_array,
+                                             current_encoding=None, desired_encoding='midi_pitch', for_rnn=True)
+    print(output_array)
 
 
 if __name__ == "__main__":
