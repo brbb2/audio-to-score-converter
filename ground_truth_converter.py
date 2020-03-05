@@ -1,7 +1,7 @@
 import numpy as np
 from music21 import *
 from audio_processor import get_spectrogram
-from midi_manager import REST_ENCODING, one_hot_encode_midi_pitch
+from encoder import REST_MIDI_ENCODING, one_hot_encode_midi_pitch
 
 
 def print_note(event, as_tuple=True):
@@ -33,9 +33,9 @@ def get_encoded_pitch(element, encoding='one_hot'):
             encoded_pitch = str(element.pitch)
     elif type(element) is note.Rest:
         if encoding == 'one_hot':
-            encoded_pitch = one_hot_encode_midi_pitch(REST_ENCODING)
+            encoded_pitch = one_hot_encode_midi_pitch(REST_MIDI_ENCODING)
         elif encoding == 'midi_pitch':
-            encoded_pitch = REST_ENCODING
+            encoded_pitch = REST_MIDI_ENCODING
         else:
             encoded_pitch = 'rest'
     return encoded_pitch
@@ -104,9 +104,9 @@ def get_monophonic_periodogram_pitch_old(times, notes, encoding=None):
 
     # initialise ground-truth array with rests
     if encoding == 'one_hot':
-        ground_truth = np.full(len(times), one_hot_encode_midi_pitch(REST_ENCODING), dtype=object)
+        ground_truth = np.full(len(times), one_hot_encode_midi_pitch(REST_MIDI_ENCODING), dtype=object)
     elif encoding == 'midi_pitch':
-        ground_truth = np.full(len(times), REST_ENCODING, dtype=object)
+        ground_truth = np.full(len(times), REST_MIDI_ENCODING, dtype=object)
     else:
         ground_truth = np.full(len(times), 'rest', dtype=object)
 
