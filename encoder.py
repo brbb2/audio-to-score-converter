@@ -39,16 +39,18 @@ pitch_offset_names = {
 }
 
 
-def get_bof_artificial_periodogram(shape, printing=False):
-    artificial_periodogram = np.full(shape=shape, fill_value=-0.5)
+def get_bof_artificial_periodogram(number_of_bins, printing=False):
+    assert type(number_of_bins) is int and number_of_bins > 0
+    artificial_periodogram = np.full(shape=number_of_bins, fill_value=-0.5)
     artificial_periodogram[::2] = 0
     if printing:
         print(artificial_periodogram)
     return artificial_periodogram
 
 
-def get_eof_artificial_periodogram(shape, printing=False):
-    artificial_periodogram = np.full(shape=shape, fill_value=-1.0)
+def get_eof_artificial_periodogram(number_of_bins, printing=False):
+    assert type(number_of_bins) is int and number_of_bins > 0
+    artificial_periodogram = np.full(shape=number_of_bins, fill_value=-1.0)
     artificial_periodogram[::3] = 0
     if printing:
         print(artificial_periodogram)
