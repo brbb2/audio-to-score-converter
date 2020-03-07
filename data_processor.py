@@ -1,4 +1,5 @@
 import numpy as np
+from os import mkdir
 from math import ceil
 from os import listdir
 from keras.utils import normalize
@@ -7,8 +8,54 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from audio_processor import get_window_parameters, get_spectrogram
 from ground_truth_converter import get_monophonic_ground_truth
 from encoder import encode_ground_truth_array, get_bof_artificial_periodogram, get_eof_artificial_periodogram
+from encoder import BoF_LABEL_ENCODING
 from neural_network_trainer import print_shapes, print_counts_table, make_dictionary_from_arrays, flatten_split_data,\
     reshape, split_dictionary, save_data_arrays, print_split_data
+
+
+def print_rnn_split_data(encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,
+                         encoder_inputs_val, decoder_inputs_val, decoder_outputs_val):
+    print(f'encoder_inputs_train: {encoder_inputs_train.shape}\n{encoder_inputs_train}\n')
+    print(f'decoder_inputs_train: {decoder_inputs_train.shape}\n{decoder_inputs_train}\n')
+    print(f'decoder_outputs_train: {decoder_outputs_train.shape}\n{decoder_outputs_train}\n')
+    print(f'encoder_inputs_val: {encoder_inputs_val.shape}\n{encoder_inputs_val}\n')
+    print(f'decoder_inputs_val: {decoder_inputs_val.shape}\n{decoder_inputs_val}\n')
+    print(f'decoder_outputs_val: {decoder_outputs_val.shape}\n{decoder_outputs_val}\n')
+
+
+def save_rnn_data_arrays(save_name, encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,
+                         encoder_inputs_val, decoder_inputs_val, decoder_outputs_val, printing=True):
+
+    path = f'data_arrays/{save_name}'
+
+    try:
+        mkdir(path)
+    except OSError:
+        print(f'Creation of the directory \"{path}\" failed.')
+    else:
+        if printing:
+            print(f'Successfully created the directory \"{path}\".')
+
+    np.save(f'data_arrays/{save_name}/encoder_inputs_train.npy', encoder_inputs_train)
+    np.save(f'data_arrays/{save_name}/decoder_inputs_train.npy', decoder_inputs_train)
+    np.save(f'data_arrays/{save_name}/decoder_outputs_train.npy', decoder_outputs_train)
+    np.save(f'data_arrays/{save_name}/encoder_inputs_val.npy', encoder_inputs_val)
+    np.save(f'data_arrays/{save_name}/decoder_inputs_val.npy', decoder_inputs_val)
+    np.save(f'data_arrays/{save_name}/decoder_outputs_val.npy', decoder_outputs_val)
+
+    if printing:
+        print(f'Successfully saved data arrays in the directory \"{path}\".')
+
+
+def load_rnn_data_arrays(save_name):
+    encoder_inputs_train = np.load(f'data_arrays/{save_name}/encoder_inputs_train.npy')
+    decoder_inputs_train = np.load(f'data_arrays/{save_name}/decoder_inputs_train.npy')
+    decoder_outputs_train = np.load(f'data_arrays/{save_name}/decoder_outputs_train.npy')
+    encoder_inputs_val = np.load(f'data_arrays/{save_name}/encoder_inputs_val.npy')
+    decoder_inputs_val = np.load(f'data_arrays/{save_name}/decoder_inputs_val.npy')
+    decoder_outputs_val = np.load(f'data_arrays/{save_name}/decoder_outputs_val.npy')
+    return encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,\
+        encoder_inputs_val, decoder_inputs_val, decoder_outputs_val
 
 
 def get_maximum_number_of_windows(sources, printing=False):
@@ -30,7 +77,8 @@ def get_maximum_number_of_windows(sources, printing=False):
     return maximum_number_of_windows
 
 
-def reshape_split_data_for_rnn(x_train, y_train, x_val, y_val, maximum_number_of_windows):
+def reshape_split_data_for_rnn(x_train, y_train, x_val, y_val, maximum_number_of_windows,
+                               target_encoding='label', printing=False):
     maximum_number_of_windows += 2  # add two to account for the obligatory BoF and EoF markers
     number_of_bins = x_train[0].shape[1]
 
@@ -39,29 +87,59 @@ def reshape_split_data_for_rnn(x_train, y_train, x_val, y_val, maximum_number_of
     x_val_reshaped = np.zeros(shape=(len(x_val), maximum_number_of_windows, number_of_bins))
     y_val_reshaped = np.zeros(shape=(len(y_val), maximum_number_of_windows, 1))
 
+    if target_encoding == 'midi_pitch' or target_encoding == 'label':
+        y_train_reshaped = y_train_reshaped.astype(int)
+        y_val_reshaped = y_val_reshaped.astype(int)
+
+    bof_label = encode_ground_truth_array(np.array(['BoF']), desired_encoding='label')[0]
+    eof_label = encode_ground_truth_array(np.array(['EoF']), desired_encoding='label')[0]
+
     # initialise all arrays by filling them with EoF data
     x_train_reshaped[:, :] = get_eof_artificial_periodogram(number_of_bins)
-    y_train_reshaped[:, :] = 'EoF'
+    y_train_reshaped[:, :] = eof_label
     x_val_reshaped[:, :] = get_eof_artificial_periodogram(number_of_bins)
-    y_val_reshaped[:, :] = 'EoF'
+    y_val_reshaped[:, :] = eof_label
 
     # set the first window of every file to BoF data
     x_train_reshaped[:, 0] = get_bof_artificial_periodogram(number_of_bins)
-    y_train_reshaped[:, 0] = 'BoF'
+    y_train_reshaped[:, 0] = bof_label
     x_val_reshaped[:, 0] = get_bof_artificial_periodogram(number_of_bins)
-    y_val_reshaped[:, 0] = 'BoF'
+    y_val_reshaped[:, 0] = bof_label
 
+    # for each sample in x_train, put its periodograms into x_train_reshaped
     for i in range(len(x_train)):
-        x_train_i = x_train[i].reshape(x_train.shape[:-1])
+        x_train_i = np.array(x_train[i]).reshape(x_train[i].shape[:-1])
+        # print(f'x_train[{i}]: {x_train_i.shape}\n{x_train_i}\n')
+        # for the ith sample, from the second to the penultimate window, set the periodograms to those of x_train_i
         x_train_reshaped[i, 1:1 + len(x_train_i), :] = x_train_i
-        y_train_reshaped[i, 1:1 + len(x_train_i)] = y_train[i]
+        y_train_reshaped[i, 1:1 + len(x_train_i), :] = y_train[i].reshape((y_train[i].shape[0], 1))
+        assert y_train_reshaped[i, 0, 0] == BoF_LABEL_ENCODING
 
     for i in range(len(x_val)):
-        x_val_i = x_val[i].reshape(x_val.shape[:-1])
+        x_val_i = np.array(x_val[i]).reshape(x_val[i].shape[:-1])
         x_val_reshaped[i, 1:1+len(x_val_i), :] = x_val_i
-        y_val_reshaped[i, 1:1+len(x_val_i)] = y_val[i]
+        y_val_reshaped[i, 1:1+len(x_val_i), :] = y_val[i].reshape((y_val[i].shape[0], 1))
+        assert y_val_reshaped[i, 0, 0] == BoF_LABEL_ENCODING
+
+    if printing:
+        print(f'maximum_number_of_windows: {maximum_number_of_windows - 2} + 2 = {maximum_number_of_windows}')
+        print(f'           number of bins: {number_of_bins}')
+        print(f'                BoF label: {bof_label}')
+        print(f'                EoF label: {eof_label}\n')
+        print(f'      x_train_reshaped[0]: {x_train_reshaped[0].shape}\n{x_train_reshaped[0]}\n')
+        print(f'      y_train_reshaped[0]: {y_train_reshaped[0].shape}\n{y_train_reshaped[0]}\n\n')
+        print_split_data(x_train_reshaped, y_train_reshaped, x_val_reshaped, y_val_reshaped)
 
     return x_train_reshaped, y_train_reshaped, x_val_reshaped, y_val_reshaped
+
+
+def get_decoder_outputs(decoder_inputs, printing=False):
+    decoder_outputs = np.array(decoder_inputs)
+    decoder_outputs[:, :-1, :] = decoder_inputs[:, 1:, :]
+    if printing:
+        print(f' decoder inputs: {decoder_inputs.shape}\n{decoder_inputs}\n')
+        print(f'decoder outputs: {decoder_inputs.shape}\n{decoder_inputs}\n')
+    return decoder_outputs
 
 
 def load_audio_files_and_get_ground_truth(window_size, splitting_on_file_name=False, using_midi_bins=False,
@@ -369,23 +447,14 @@ def get_data(window_size, wav_directory='wav_files', xml_directory='xml_files',
             x, y = balance_rests(x, y)
 
     if normalising:
-        x = normalise(x, printing=deep_printing, spectral_powers_present=adding_spectral_powers,
-                      first_order_differences_present=adding_first_order_differences)
+        x = normalise(x, spectral_powers_present=adding_spectral_powers,
+                      first_order_differences_present=adding_first_order_differences, printing=deep_printing)
 
     y = encode(y, target_encoding=target_encoding)
 
     if splitting_on_file_name:
         dictionary = make_dictionary_from_arrays(x, y, sources)
         x_train, y_train, x_val, y_val = split_on_file_names(dictionary, printing=deep_printing)
-        print('SHAPE')
-        print('SHAPE')
-        print('SHAPE')
-        print('SHAPE')
-        print(x_train.shape, y_train.shape, x_val.shape, y_val.shape)
-        print('SHAPE')
-        print('SHAPE')
-        print('SHAPE')
-        print('SHAPE')
         x_train, y_train, x_val, y_val = flatten_split_data(x_train, y_train, x_val, y_val, adding_file_separators,
                                                             encoding=target_encoding, printing=deep_printing)
     else:
@@ -395,17 +464,70 @@ def get_data(window_size, wav_directory='wav_files', xml_directory='xml_files',
         print_split_data(x_train, y_train, x_val, y_val)
 
     if saving and save_name is not None:
-        save_data_arrays(x_train, y_train, x_val, y_val, version=save_name)
+        save_data_arrays(x_train, y_train, x_val, y_val, save_name=save_name)
 
     return x_train, y_train, x_val, y_val
 
 
+def get_data_for_rnn(window_size, wav_directory='wav_files', xml_directory='xml_files', adding_spectral_powers=True,
+                     balancing_rests=False, normalising=True, target_encoding='label',
+                     saving=False, save_name=None, printing=False, deep_printing=False):
+
+    x, y, sources = load_audio_files_and_get_ground_truth(window_size, wav_directory=wav_directory,
+                                                          xml_directory=xml_directory, splitting_on_file_name=True)
+
+    maximum_number_of_windows = get_maximum_number_of_windows(sources, printing=deep_printing)
+
+    if adding_spectral_powers:
+        x = add_spectral_powers(x, printing=deep_printing)
+
+    if balancing_rests:
+        x, y, sources = balance_rests(x, y, sources)
+
+    if normalising:
+        x = normalise(x, spectral_powers_present=adding_spectral_powers,
+                      first_order_differences_present=False, printing=deep_printing)
+
+    y = encode(y, target_encoding=target_encoding)
+
+    dictionary = make_dictionary_from_arrays(x, y, sources)
+    x_train, y_train, x_val, y_val = split_on_file_names(dictionary, printing=deep_printing)
+
+    x_train, y_train, x_val, y_val = reshape_split_data_for_rnn(x_train, y_train, x_val, y_val,
+                                                                maximum_number_of_windows,
+                                                                target_encoding=target_encoding)
+
+    encoder_inputs_train = x_train
+    decoder_inputs_train = y_train
+    decoder_outputs_train = get_decoder_outputs(decoder_inputs_train)
+    encoder_inputs_val = x_val
+    decoder_inputs_val = y_val
+    decoder_outputs_val = get_decoder_outputs(decoder_inputs_val)
+
+    if printing:
+        print_rnn_split_data(encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,
+                             encoder_inputs_val, decoder_inputs_val, decoder_outputs_val)
+
+    if saving and save_name is not None:
+        save_rnn_data_arrays(save_name, encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,
+                             encoder_inputs_val, decoder_inputs_val, decoder_outputs_val)
+
+    return encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,\
+        encoder_inputs_val, decoder_inputs_val, decoder_outputs_val
+
+
 def main():
-    get_data(50, wav_directory='wav_files_simple', xml_directory='xml_files_simple',
-             balancing_rests=False, adding_first_order_differences=False,
-             splitting_on_file_name=True, adding_file_separators=False,
-             printing=True, deep_printing=True,
-             saving=False, save_name='RNN_split_on_file_names_unbalanced_with_powers')
+    # get_data(50, wav_directory='wav_files_simple', xml_directory='xml_files_simple',
+    #          balancing_rests=False, adding_first_order_differences=False,
+    #          splitting_on_file_name=True, adding_file_separators=False,
+    #          printing=True, deep_printing=True,
+    #          saving=False, save_name='RNN_split_on_file_names_unbalanced_with_powers')
+    get_data_for_rnn(50, wav_directory='wav_files_simple', xml_directory='xml_files_simple',
+                     saving=False, save_name='rnn_label_freq_050ms_powers', printing=True, deep_printing=True)
+    # encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,\
+    #     encoder_inputs_val, decoder_inputs_val, decoder_outputs_val = load_rnn_data_arrays('rnn')
+    # print_rnn_split_data(encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,
+    #                      encoder_inputs_val, decoder_inputs_val, decoder_outputs_val)
     # _, _, sources = load_audio_files_and_get_ground_truth(50, wav_directory='wav_files_simple',
     #                                                       xml_directory='xml_files_simple', splitting_on_file_name=True)
     # get_maximum_number_of_windows(sources, printing=True)
