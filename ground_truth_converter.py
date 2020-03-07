@@ -178,14 +178,28 @@ def get_monophonic_ground_truth_old(wav, xml, encoding=None, window_size=50, pri
 
 def get_monophonic_ground_truth(file_name, window_size=50, wav_path='wav_files', xml_path='xml_files', printing=False):
 
-    _, times, _ = get_spectrogram(f'{wav_path}/{file_name}.wav', window_size=window_size)
+    # get the mid-point time of each window from the spectrogram of the wav file
+    if wav_path is None:
+        _, times, _ = get_spectrogram(f'{file_name}.wav', window_size=window_size)
+    else:
+        _, times, _ = get_spectrogram(f'{wav_path}/{file_name}.wav', window_size=window_size)
+
     ground_truth_duration = len(times) * window_size / 1000.0
-    notes = get_notes_from_xml_file(f'{xml_path}/{file_name}.musicxml', ground_truth_duration)
+
+    # get the notes from the musicXML file
+    if xml_path is None:
+        notes = get_notes_from_xml_file(f'{file_name}.musicxml', ground_truth_duration)
+    else:
+        notes = get_notes_from_xml_file(f'{xml_path}/{file_name}.musicxml', ground_truth_duration)
+
+    # see which pitch (or rest) is present in each window
     ground_truth = get_pitches_for_each_window(times, notes)
+
     if printing:
         print(f'notes:\n{notes}\n\n'
               f'mid-point times: {times.shape} {type(times)}\n{times}\n\n'
               f'ground truth: {ground_truth.shape} {type(ground_truth)}\n{ground_truth}')
+
     return ground_truth
 
 
