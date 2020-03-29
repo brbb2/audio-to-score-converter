@@ -80,14 +80,25 @@ def get_notes_from_xml_file(xml_file_full_path, ground_truth_duration, printing=
                     n = None
                     onset_time = measure_offset_seconds + item['offsetSeconds']
                     offset_time = onset_time + item['durationSeconds']
+
                     if last_offset_time < offset_time:
                         last_offset_time = offset_time
+
                     if type(element) is note.Note:
                         n = (element.nameWithOctave, onset_time, offset_time)
                     elif type(element) is note.Rest:
                         n = ('rest', onset_time, offset_time)
+
                     if n is not None:
-                        notes.insert(0, n)
+                        # if there are two rests in a row, replace the previous rest with a longer rest
+                        if len(notes) > 0 and notes[0][0] == 'rest' and n[0] == 'rest':
+                            notes[0] = ('rest', notes[0][1], n[2])
+                        # if the current not is tied to the previous note, replace the previous note with a longer note
+                        elif type(element) is note.Note and element.tie is not None and \
+                                (element.tie.type == 'stop' or element.tie.type == 'continue'):
+                            notes[0] = (notes[0][0], notes[0][1], n[2])
+                        else:
+                            notes.insert(0, n)
 
     if last_offset_time < ground_truth_duration:
         notes.insert(0, ('rest', last_offset_time, ground_truth_duration))
@@ -97,6 +108,13 @@ def get_notes_from_xml_file(xml_file_full_path, ground_truth_duration, printing=
     if printing:
         print(notes)
 
+    return notes
+
+
+def get_ground_truth_notes(file_name, window_size, wav_path='wav_files', xml_path='xml_files'):
+    _, times, _ = get_spectrogram(f'{wav_path}/{file_name}.wav', window_size=window_size)
+    ground_truth_duration = len(times) * window_size / 1000.0
+    notes = get_notes_from_xml_file(f'{xml_path}/{file_name}.musicxml', ground_truth_duration)
     return notes
 
 
