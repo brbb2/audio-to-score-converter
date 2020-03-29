@@ -107,17 +107,31 @@ def sweep(most_likely_pitch_for_each_window, threshold=0.9, window_size=25, quan
         # if a new pitch is encountered, having a probability above the user-determined threshold,
         # then interpret this to mean that a new note has been found
         if this_note_name != current_note_name and this_note_probability > threshold:
+            current_note_offset_time = i * window_size / 1000.0
             # if the new note is the first note to be found
             if this_is_the_first_note:
-                # then it has now been seen, and so new notes can no longer be the first note
+                # then the first note has now been seen, and so new notes can no longer be the first note
                 this_is_the_first_note = False
+
+                # if the first note above the threshold does not start at the very beginning of the audio file
+                if current_note_offset_time > 0.0:
+                    # predict a rest at the beginning of the audio file by default
+                    if quantising:
+                        quantised_current_note_offset_time = quantise(current_note_offset_time, quantise_degree)
+                        predicted_notes.insert(0, ('rest', 0.0, quantised_current_note_offset_time))
+                    else:
+                        predicted_notes.insert(0, ('rest', 0.0, current_note_offset_time))
             else:
                 # otherwise, add the previous current note, now that its offset time has been discovered
-                current_note_offset_time = i * window_size / 1000.0
+
                 if quantising:
-                    current_note_onset_time = quantise(current_note_onset_time, quantise_degree)
-                    current_note_offset_time = quantise(current_note_offset_time, quantise_degree)
-                predicted_notes.insert(0, (current_note_name, current_note_onset_time, current_note_offset_time))
+                    quantised_current_note_onset_time = quantise(current_note_onset_time, quantise_degree)
+                    quantised_current_note_offset_time = quantise(current_note_offset_time, quantise_degree)
+                    if quantised_current_note_onset_time < quantised_current_note_offset_time:
+                        predicted_notes.insert(0, (current_note_name, quantised_current_note_onset_time,
+                                                   quantised_current_note_offset_time))
+                else:
+                    predicted_notes.insert(0, (current_note_name, current_note_onset_time, current_note_offset_time))
 
             # update the current-note details
             current_note_name = this_note_name
@@ -127,18 +141,27 @@ def sweep(most_likely_pitch_for_each_window, threshold=0.9, window_size=25, quan
 
     # after the loop, get the information needed to check whether there is one last note to add
     required_duration_of_prediction = len(most_likely_pitch_for_each_window) * window_size / 1000.0
-    last_found_note_name = predicted_notes[0][0]
-    last_found_offset_time = predicted_notes[0][2]
+    if len(predicted_notes) > 0:
+        last_found_note_name = predicted_notes[0][0]
+        last_found_offset_time = predicted_notes[0][2]
+    else:
+        last_found_note_name = None
+        last_found_offset_time = None
 
     # if there is one last note to add at the end of the file
-    if last_found_offset_time < required_duration_of_prediction:
+    if last_found_offset_time is None or last_found_offset_time < required_duration_of_prediction:
+        if current_note_onset_time is None:
+            current_note_onset_time = 0.0
         current_note_offset_time = required_duration_of_prediction
         # then add the last note found that exceeded the user-determined probability threshold
-        if current_note_name != last_found_note_name:
+        if last_found_note_name is not None and current_note_name != last_found_note_name:
             if quantising:
-                current_note_onset_time = quantise(current_note_onset_time, quantise_degree)
-                current_note_offset_time = quantise(current_note_offset_time, quantise_degree)
-            predicted_notes.insert(0, (current_note_name, current_note_onset_time, current_note_offset_time))
+                quantised_current_note_onset_time = quantise(current_note_onset_time, quantise_degree)
+                quantised_current_note_offset_time = quantise(current_note_offset_time, quantise_degree)
+                predicted_notes.insert(0, (current_note_name, quantised_current_note_onset_time,
+                                           quantised_current_note_offset_time))
+            else:
+                predicted_notes.insert(0, (current_note_name, current_note_onset_time, current_note_offset_time))
         # if there is no sufficiently probable note, then pad the prediction to the end with a rest as a default
         else:
             predicted_notes.insert(0, ('rest', current_note_onset_time, current_note_offset_time))
@@ -183,6 +206,7 @@ def plot_pitch_probability_over_time(index, pitch_probabilities_for_each_window,
     if starting_new_figure:
         plt.figure()
     plt.plot(pitch_probabilities_for_each_window[:, index])
+    plt.ylim(0.0, 1.05)
     if showing:
         plt.show()
 
@@ -192,18 +216,21 @@ def plot_pitch_probabilities_over_time(midi_pitches, times, pitch_probabilities_
     plt.title(f'{midi_pitches}')
     plt.xlabel(f'time (seconds)')
     plt.ylabel(f'probability')
+    plt.ylim(0.0, 1.05)
     for midi_pitch in midi_pitches:
         label = label_encode_midi_pitch(midi_pitch)
         plt.plot(times, pitch_probabilities_for_each_pitch[label], label=midi_pitch)
     plt.show()
 
 
-def plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch, file_name=None, showing=True):
+def plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch, file_name=None,
+                                           plotting_threshold=True, threshold=None, showing=True):
     plt.figure()
     if file_name is not None:
         plt.title(f'Pitch Probabilities for\n\"{file_name}.wav\"')
     plt.xlabel(f'time (seconds)')
     plt.ylabel(f'probability')
+    plt.ylim(0.0, 1.05)
     midi_pitches = get_pitch_array()
     for midi_pitch in midi_pitches:
         index = label_encode_midi_pitch(midi_pitch)
@@ -211,12 +238,16 @@ def plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_p
         y = pitch_probabilities_for_each_pitch[index]
         if np.max(y) > 0.05:
             plt.plot(times, y, label=note_name)
+    if plotting_threshold and threshold is not None and 0.0 <= threshold <= 1.0:
+        plt.plot([times[0], times[-1]], [threshold, threshold])
     plt.legend()
     if showing:
         plt.show()
 
 
-def quantise(value, degree=0.25):
+def quantise(value, degree=0.25, quantising_time=True, bpm=120):
+    if quantising_time:
+        degree *= (60 / float(bpm))
     scale_factor = 1.0 / degree
     value *= scale_factor
     value = round(value)
@@ -226,7 +257,7 @@ def quantise(value, degree=0.25):
 
 def main():
 
-    # file_name = f'single_C#3_0'
+    # file_name = f'single_G7_0'
     # wav_path = f'wav_files_simple'
     # xml_path = f'xml_files_simple'
 
@@ -237,7 +268,7 @@ def main():
     wav_file_full_path = f'{wav_path}/{file_name}.wav'
     xml_file_full_path = f'{xml_path}/{file_name}.musicxml'
 
-    threshold = 0.7
+    threshold = 0.1
     window_size = 25
 
     _, times, _ = get_spectrogram(wav_file_full_path, window_size=window_size)
@@ -247,22 +278,22 @@ def main():
                                                                              wav_path=wav_path, returning_times=True)
     predicted_notes = sweep(pitches_and_probabilities, quantising=True, threshold=threshold)
     print(f'\n{file_name}')
-    print(f'\nnotes picked by system: {predicted_notes}')
-    print(f' notes in the XML file: {notes}')
-    create_predicted_score(predicted_notes, saving=True, save_name=f'{file_name} output {threshold}')
+    print(f'\nnotes picked by system: {len(predicted_notes):>4} {predicted_notes}')
+    print(f' notes in the XML file: {len(notes):>4} {notes}')
+    create_predicted_score(predicted_notes, saving=False, save_name=f'{file_name} output {threshold}')
 
     # graph plotting
-    # pitch_probabilities_for_each_pitch, times = get_pitch_probabilities_for_each_pitch(file_name,
-    #                                                                                    wav_path=wav_path,
-    #                                                                                    returning_times=True,
-    #                                                                                    using_saved_maximum=True)
+    pitch_probabilities_for_each_pitch, times = get_pitch_probabilities_for_each_pitch(file_name,
+                                                                                       wav_path=wav_path,
+                                                                                       returning_times=True,
+                                                                                       using_saved_maximum=True)
 
     # plot_pitch_probability_over_time(0, pitch_probabilities_for_each_window, showing=False)
     # plot_pitch_probability_over_time(49, pitch_probabilities_for_each_window, starting_new_figure=False)
     # plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch,
     #                                        file_name=f'{file_name}_using_saved_maximum', showing=False)
     # plot_all_pitch_probabilities_over_time(times_2, pitch_probabilities_for_each_pitch_2, file_name=file_name)
-    # plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch,
+    # plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch, threshold=threshold,
     #                                        file_name=file_name, showing=True)
 
 
