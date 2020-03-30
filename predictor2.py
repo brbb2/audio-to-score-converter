@@ -6,6 +6,9 @@ from audio_processor import get_spectrogram
 from music21 import *
 import numpy as np
 import matplotlib.pyplot as plt
+from string import digits
+from encoder import pitch_offsets, pitch_offset_names, key_signature_notes, key_signature_encodings
+from encoder import get_relative_major, get_relative_minor
 
 
 def get_pitch_probabilities_for_each_window(file_name, wav_path='wav_files_simple', window_size=25,
@@ -180,8 +183,89 @@ def sweep(most_likely_pitch_for_each_window, threshold=0.9, window_size=25, quan
     return predicted_notes
 
 
-def create_predicted_score(predicted_notes, save_name='test', bpm=120, printing=False, saving=True):
+def get_pitches_of_notes(notes):
+    pitches_of_notes = list()
+    for n in notes:
+        pitches_of_notes.insert(0, n[0])
+    pitches_of_notes.reverse()
+    return pitches_of_notes
+
+
+def infer_key_signature(predicted_notes, measure_quarter_length=4, bpm=120, printing=False):
+
+    predicted_pitches_of_notes = get_pitches_of_notes(predicted_notes)
+    predicted_pitches_of_notes.remove('rest')
+
+    for i in range(len(predicted_pitches_of_notes)):
+        predicted_pitches_of_notes[i] = predicted_pitches_of_notes[i].translate({ord(k): None for k in digits})
+    unique_pitches_of_notes, pitch_counts = np.unique(np.array(predicted_pitches_of_notes), return_counts=True)
+    pitch_offset_counts = np.zeros(12, dtype=int)
+
+    for i in range(len(unique_pitches_of_notes)):
+        pitch_offset_counts[pitch_offsets[unique_pitches_of_notes[i]]] = pitch_counts[i]
+
+    most_common_pitch = pitch_offset_names[np.argmax(pitch_offset_counts)]
+    count_of_most_common_pitch = np.max(pitch_offset_counts)
+
+    best_major_key_signatures = list()
+    best_number_of_matching_pitches = 0
+    for key_signature in key_signature_notes.keys():
+        key_signature_pitches = key_signature_notes[key_signature]
+        number_of_matching_pitches = 0
+        for i in range(12):
+            if key_signature_pitches[i] > 0 and pitch_offset_counts[i] > 0:
+                number_of_matching_pitches += 1
+        if number_of_matching_pitches > best_number_of_matching_pitches:
+            best_number_of_matching_pitches = number_of_matching_pitches
+            best_major_key_signatures = list(key_signature)
+        elif number_of_matching_pitches == best_number_of_matching_pitches:
+            best_major_key_signatures.insert(0, key_signature)
+
+    best_minor_key_signatures = list()
+
+    for major_key_signature in best_major_key_signatures:
+        relative_minor_key = get_relative_minor(major_key_signature)
+        best_minor_key_signatures.insert(0, relative_minor_key)
+
+    best_minor_key_signatures.reverse()
+
+    pitch_of_first_note = None
+    duration_of_each_measure = measure_quarter_length * 60 / float(bpm)
+    i = 0
+    while i < len(predicted_pitches_of_notes):
+        if predicted_notes[i][0] != 'rest' and abs((predicted_notes[i][1] / duration_of_each_measure) % 1) < 0.01:
+            pitch_of_first_note = predicted_pitches_of_notes[0]
+            break
+        i += 1
+
+    pitch_offset_of_first_note = pitch_offsets[pitch_of_first_note]
+    count_of_first_pitch = pitch_offset_counts[pitch_offset_of_first_note]
+
+    printing = True
+    if printing:
+        print(f'    unique pitches present: {unique_pitches_of_notes}')
+        print(f'              pitch counts: {pitch_offset_counts}\n')
+        print(f'         most common pitch: {most_common_pitch}')
+        print(f'count of most common pitch: {count_of_most_common_pitch}\n')
+        print(f' first bar-beginning pitch: {pitch_of_first_note}')
+        print(f'      count of first pitch: {count_of_first_pitch}\n')
+        print(f' best major key signatures: {best_major_key_signatures}')
+        print(f' best minor key signatures: {best_minor_key_signatures}')
+
+    # TODO: improve this
+    encoded_key_signature = key_signature_encodings[pitch_of_first_note]
+    if pitch_of_first_note in best_minor_key_signatures:
+        relative_major = get_relative_major(pitch_of_first_note)
+        encoded_key_signature = key_signature_encodings[relative_major]
+        print(encoded_key_signature)
+    return encoded_key_signature
+
+
+def create_predicted_score(predicted_notes, save_name='test', bpm=120, save_path='test_files/test_outputs',
+                           printing=False, saving=True):
+    predicted_key_signature = infer_key_signature(predicted_notes)
     s = stream.Stream()
+    s.append(key.KeySignature(predicted_key_signature))
     for predicted_note in predicted_notes:
         quarter_length = (predicted_note[2] - predicted_note[1]) * bpm / 60.0
         if predicted_note[0] == 'rest':
@@ -196,7 +280,11 @@ def create_predicted_score(predicted_notes, save_name='test', bpm=120, printing=
         print(f'{s}')
 
     if saving:
-        s.write('musicxml', f'{save_name}.musicxml')
+        if save_path is None:
+            output_file_full_path = f'{save_name}.musicxml'
+        else:
+            output_file_full_path = f'{save_path}/{save_name}.musicxml'
+        s.write('musicxml', output_file_full_path)
 
     return s
 
@@ -255,32 +343,53 @@ def quantise(value, degree=0.25, quantising_time=True, bpm=120):
     return value
 
 
+def predict(file_name, threshold, wav_path='test_files/test_wavs', xml_path='test_files/test_xmls',
+            window_size=25, saving=True, save_path='test_files/test_outputs', printing=False):
+
+    if wav_path is None:
+        wav_file_full_path = f'{file_name}.wav'
+    else:
+        wav_file_full_path = f'{wav_path}/{file_name}.wav'
+
+    if xml_path is None:
+        xml_file_full_path = f'{file_name}.musicxml'
+    else:
+        xml_file_full_path = f'{xml_path}/{file_name}.musicxml'
+
+    _, times, _ = get_spectrogram(wav_file_full_path, window_size=window_size)
+    ground_truth_duration = len(times) * window_size / 1000.0
+    ground_truth_notes = get_notes_from_xml_file(xml_file_full_path, ground_truth_duration)
+    pitches_and_probabilities, times = get_most_likely_pitch_for_each_window(file_name,
+                                                                             wav_path=wav_path, returning_times=True)
+    predicted_notes = sweep(pitches_and_probabilities, quantising=True, threshold=threshold)
+
+    # TODO: delete this
+    create_predicted_score(predicted_notes, saving=False, save_name=f'{file_name}_output_{threshold}',
+                           save_path=save_path)
+
+    if saving:
+        create_predicted_score(predicted_notes, saving=True, save_name=f'{file_name}_output_{threshold}',
+                               save_path=save_path)
+
+    if printing:
+        print(f'\n{file_name}')
+        print(f'\nnotes picked by system: {len(predicted_notes):>4} {predicted_notes}')
+        print(f' notes in the XML file: {len(ground_truth_notes):>4} {ground_truth_notes}')
+
+    return predicted_notes
+
+
 def main():
 
     # file_name = f'single_G7_0'
     # wav_path = f'wav_files_simple'
     # xml_path = f'xml_files_simple'
 
-    file_name = f'Billie Jean Riff'
+    file_name = 'Billie_Jean_Riff'
     wav_path = f'test_files/test_wavs'
     xml_path = f'test_files/test_xmls'
 
-    wav_file_full_path = f'{wav_path}/{file_name}.wav'
-    xml_file_full_path = f'{xml_path}/{file_name}.musicxml'
-
-    threshold = 0.1
-    window_size = 25
-
-    _, times, _ = get_spectrogram(wav_file_full_path, window_size=window_size)
-    ground_truth_duration = len(times) * window_size / 1000.0
-    notes = get_notes_from_xml_file(xml_file_full_path, ground_truth_duration)
-    pitches_and_probabilities, times = get_most_likely_pitch_for_each_window(file_name,
-                                                                             wav_path=wav_path, returning_times=True)
-    predicted_notes = sweep(pitches_and_probabilities, quantising=True, threshold=threshold)
-    print(f'\n{file_name}')
-    print(f'\nnotes picked by system: {len(predicted_notes):>4} {predicted_notes}')
-    print(f' notes in the XML file: {len(notes):>4} {notes}')
-    create_predicted_score(predicted_notes, saving=False, save_name=f'{file_name} output {threshold}')
+    predict(file_name, threshold=0.2, saving=True, printing=True)
 
     # graph plotting
     pitch_probabilities_for_each_pitch, times = get_pitch_probabilities_for_each_pitch(file_name,
