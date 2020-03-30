@@ -12,13 +12,18 @@ EoF_LABEL_ENCODING = 90
 pitch_offsets = {
     'C': 0,
     'C#': 1,
+    'D-': 1,
     'D': 2,
+    'D#': 3,
     'E-': 3,
     'E': 4,
     'F': 5,
+    'F#': 6,
     'G': 7,
+    'G#': 8,
     'A-': 8,
     'A': 9,
+    'A#': 10,
     'B-': 10,
     'B': 11
 }
@@ -37,6 +42,52 @@ pitch_offset_names = {
     10: 'B-',
     11: 'B'
 }
+
+
+key_signature_notes = {
+    'C':  np.array([1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1]),
+    'C#': np.array([1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0]),
+    'D':  np.array([0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1]),
+    'E-': np.array([1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0]),
+    'E':  np.array([0, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0, 1]),
+    'F':  np.array([1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1, 0]),
+    'F#': np.array([0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1]),
+    'G':  np.array([1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1]),
+    'A-': np.array([1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0]),
+    'A':  np.array([0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1]),
+    'B-': np.array([1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1, 0]),
+    'B':  np.array([0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 1])
+}
+
+
+key_signature_encodings = {
+    'C':  0,
+    'C#': 7,
+    'D-': -5,
+    'D':  2,
+    'E-': -3,
+    'E':  4,
+    'F': -1,
+    'F#': 6,
+    'G-': -6,
+    'G':  1,
+    'A-': -4,
+    'A':  3,
+    'B-': -2,
+    'B':  5
+}
+
+
+def get_relative_major(key_signature):
+    pitch_offset = pitch_offsets[key_signature]
+    relative_minor_pitch_offset = (pitch_offset + 3) % 12
+    return pitch_offset_names[relative_minor_pitch_offset]
+
+
+def get_relative_minor(key_signature):
+    pitch_offset = pitch_offsets[key_signature]
+    relative_minor_pitch_offset = (pitch_offset - 3) % 12
+    return pitch_offset_names[relative_minor_pitch_offset]
 
 
 def get_bof_artificial_periodogram(number_of_bins, printing=False):
