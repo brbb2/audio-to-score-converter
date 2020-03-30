@@ -75,8 +75,8 @@ def get_f_score(ground_truth_notes, predicted_notes, precision=None, recall=None
     return f_score
 
 
-def evaluate_prediction(file_name, threshold, wav_path='test_files/test_wavs', xml_path='test_files/test_xmls',
-                        window_size=25, printing=False):
+def predict_and_evaluate(file_name, threshold, wav_path='test_files/test_wavs', xml_path='test_files/test_xmls',
+                         window_size=25, printing=False):
 
     ground_truth_notes = get_ground_truth_notes(file_name, wav_path=wav_path, xml_path=xml_path,
                                                 window_size=window_size)
@@ -88,9 +88,18 @@ def evaluate_prediction(file_name, threshold, wav_path='test_files/test_wavs', x
     # use the pitches of all the windows to predict the notes
     predicted_notes = sweep(pitches_and_probabilities, quantising=True, threshold=threshold)
 
-    if printing:
-        print(f'{file_name}')
     f_score = get_f_score(ground_truth_notes, predicted_notes, printing=printing)
+
+    pitches_of_ground_truth_notes = get_pitches_of_notes(ground_truth_notes)
+    pitches_of_predicted_notes = get_pitches_of_notes(predicted_notes)
+
+    if printing:
+        print(f'\n{file_name}')
+        print(f'\nnotes picked by system: {len(predicted_notes):>4} {predicted_notes}')
+        print(f' notes in the XML file: {len(ground_truth_notes):>4} {ground_truth_notes}')
+        print(f'\nnotes picked by system: {len(pitches_of_predicted_notes):>4} {pitches_of_predicted_notes}')
+        print(f' notes in the XML file: {len(pitches_of_ground_truth_notes):>4} {pitches_of_ground_truth_notes}')
+        print(f'\n               F-score: {f_score:6.4f}')
 
     return f_score
 
@@ -100,8 +109,8 @@ def evaluate_all(test_file_names, threshold, wav_path='test_files/test_wavs', xm
     accuracies = np.zeros(len(test_file_names))
     for i in range(len(test_file_names)):
         test_file_name = test_file_names[i]
-        accuracy = evaluate_prediction(test_file_name, threshold=threshold, window_size=window_size,
-                                       printing=deep_printing)
+        accuracy = predict_and_evaluate(test_file_name, threshold=threshold, window_size=window_size,
+                                        printing=deep_printing)
         accuracies[i] = accuracy
 
     average_accuracy = np.mean(accuracies)
@@ -143,10 +152,10 @@ def brute_force_search_for_optimal_threshold_value(increment=0.01, start_thresho
 
 
 def main():
-    # evaluate_prediction('In the Bleak Midwinter', threshold=0.7, printing=True)
+    predict_and_evaluate('Billie_Jean_Riff', threshold=0.2, printing=True)
     # test_file_names = get_test_file_names()
     # evaluate_all(test_file_names, threshold=0.7, printing=True)
-    brute_force_search_for_optimal_threshold_value(start_threshold=0.95, increment=0.05, printing=True)
+    # brute_force_search_for_optimal_threshold_value(start_threshold=0.00, increment=0.05, printing=True)
 
 
 if __name__ == '__main__':
