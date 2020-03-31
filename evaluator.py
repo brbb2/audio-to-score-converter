@@ -136,10 +136,10 @@ def get_maxima_times(single_frequency_spectrum, times, threshold, printing=False
     return np.array(maxima_times)
 
 
-def plot_smoothed(t, spectrum):
-    f = interp1d(t, spectrum)
+def plot_smoothed(t, spectrogram):
+    f = interp1d(t, spectrogram)
     x_new = np.linspace(0, 2.5, num=100, endpoint=True)
-    f2 = interp1d(t, spectrum, kind='cubic')
+    f2 = interp1d(t, spectrogram, kind='cubic')
     plt.plot(x_new, f(x_new), '-', x_new, f2(x_new), '--')
 
 
@@ -178,7 +178,7 @@ def plot_wav_prediction(note, example, model_name, method='scipy', printing=Fals
         plt.show()
 
 
-def plot_pitch_probability(note, example, midi_pitch, model_name, method='scipy', printing=False,
+def plot_pitch_probability(note, example, midi_pitch, model_name, strategy='scipy', printing=False,
                            showing=True, plotting_new_figure=True, plotting_spectrogram=False,
                            plotting_legend=False, encoding=None):
 
@@ -186,7 +186,7 @@ def plot_pitch_probability(note, example, midi_pitch, model_name, method='scipy'
     model = load_model(model_name)
     pitch_index = get_one_hot_midi_pitch_index(midi_pitch)
 
-    if method == 'scipy':
+    if strategy == 'scipy':
         if plotting_spectrogram:
             _, times, spectrogram = plot_spectrogram(wav_file, strategy='scipy', showing=False)
         else:
@@ -197,10 +197,10 @@ def plot_pitch_probability(note, example, midi_pitch, model_name, method='scipy'
         else:
             _, times, spectrogram = get_spectrogram(wav_file, strategy='pyplot')
 
-    spectrum = normalize(spectrogram, axis=0)
-    pitch_probability = np.zeros(spectrum.shape[1])
-    for i in range(spectrum.shape[1]):
-        periodogram = spectrum[:, i]
+    spectrogram = normalize(spectrogram, axis=0)
+    pitch_probability = np.zeros(spectrogram.shape[1])
+    for i in range(spectrogram.shape[1]):
+        periodogram = spectrogram[:, i]
         # periodogram = normalize(periodogram, axis=0)[0]
         model_input = periodogram.reshape(1, periodogram.shape[0], 1)
         pitch_probabilities = model.predict(model_input)[0]
@@ -236,14 +236,15 @@ def plot_all_pitch_probabilities(note, example, model_name, start=21, end=108, m
     plot_pitch_probability(note, example, REST_MIDI_ENCODING, 'new3', plotting_new_figure=False,
                            plotting_legend=True, showing=False)
     for i in range(start, end+1):
-        plot_pitch_probability(note, example, i, model_name, method=method, plotting_new_figure=False,
+        plot_pitch_probability(note, example, i, model_name, strategy=method, plotting_new_figure=False,
                                plotting_legend=True, showing=False)
     plt.legend()
     if showing:
         plt.show()
 
 
-def plot_pitch_accuracies(data_version, model_name, alpha=1, showing=True, printing=False, plotting_new_figure=True):
+def plot_pitch_accuracies(data_version, model_name, title=None, alpha=1,
+                          showing=True, printing=False, plotting_new_figure=True):
 
     # load the specified validation data and the specified model
     _, _, x_val, y_val = load_data_arrays(data_version)
@@ -284,7 +285,10 @@ def plot_pitch_accuracies(data_version, model_name, alpha=1, showing=True, print
 
     if plotting_new_figure:
         plt.figure()
-        plt.title(f'Prediction accuracy for each MIDI pitch\nwith model \"{model_name}\"')
+        if title is None:
+            plt.title(f'Prediction accuracy for each MIDI pitch\nwith model \"{model_name}\"')
+        else:
+            plt.title(title)
         plt.xlabel('MIDI pitch')
         plt.ylabel('Accuracy')
 
@@ -297,12 +301,16 @@ def plot_pitch_accuracies(data_version, model_name, alpha=1, showing=True, print
 def main():
     # plot_pitch_accuracies('debugged', 'label_freq_050ms_remove_rests_10_powers_log_k1_norm_dense_debugged',
     #                       alpha=0.5, showing=True, plotting_new_figure=True)
-    note_name = 'G4'
-    example = 3
-    create_comparison_text_file(f'single_{note_name}_{example}',
-                                'label_freq_050ms_remove_rests_10_powers_log_k1_norm_dense_debugged',
-                                wav_path='wav_files_simple', xml_path='xml_files_simple',
-                                save_name=f'single_{note_name}_{example}_debugged')
+    plot_pitch_accuracies('label_freq_025ms_with_powers_remove_rests_normalised',
+                          'label_freq_025ms_with_powers_remove_rests_log_k1_normalised_using_dropout_midi_model',
+                          title=f'Prediction accuracy for each MIDI pitch\nwith best model',
+                          alpha=0.5, showing=True, plotting_new_figure=True)
+    # note_name = 'G4'
+    # example = 3
+    # create_comparison_text_file(f'single_{note_name}_{example}',
+    #                             'label_freq_050ms_remove_rests_10_powers_log_k1_norm_dense_debugged',
+    #                             wav_path='wav_files_simple', xml_path='xml_files_simple',
+    #                             save_name=f'single_{note_name}_{example}_debugged')
 
 
 if __name__ == "__main__":
