@@ -16,6 +16,15 @@ def get_window_parameters(window_size):
     return window_size_parameters[window_size]['nperseg'], window_size_parameters[window_size]['noverlap']
 
 
+def get_precise_window_duration_in_seconds(approximate_window_size, printing=False):
+    nperseg, noverlap = get_window_parameters(approximate_window_size)
+    sampling_frequency = 44100.0
+    window_duration = (nperseg - noverlap) / sampling_frequency
+    if printing:
+        print(f'window duration: {window_duration:6.4f} seconds')
+    return window_duration
+
+
 def print_wav_details(wav_file):
     signal, frame_rate = get_audio_signal(wav_file, returning_frame_rate=True)
     duration = len(signal) / frame_rate
