@@ -1,6 +1,7 @@
-import os
+from os import listdir, mkdir
+from os.path import isfile, splitext
 import numpy as np
-import midi_manager
+import encoder
 from math import floor, ceil
 from neural_network_definitions import *
 from audio_processor import get_spectrogram_scipy, get_periodograms, get_spectrogram
@@ -41,6 +42,7 @@ def print_counts_table(y, y_train, y_test):
         else:
             y_test_count = 0
         print(f'{str(y_targets[i]): <9} | {y_counts[i]: >7}  {y_train_count: >7}  {y_test_count: >7}')
+    print('\n')
 
 
 def print_normalisation_options(x):
@@ -161,11 +163,11 @@ def get_data_dictionary(encoding=None, midi_bins=False, nperseg=4096, noverlap=2
     data = dict()
 
     # for each wav file in the data directory
-    for filename in os.listdir('wav_files'):
-        if os.path.isfile(f'wav_files/{filename}'):
+    for filename in listdir('wav_files'):
+        if isfile(f'wav_files/{filename}'):
 
             # remove file extension from the filename
-            filename, _ = os.path.splitext(filename)
+            filename, _ = splitext(filename)
 
             # get the spectrogram of the audio file
             f, t, sxx = get_spectrogram_scipy(f'wav_files/{filename}.wav', using_midi_bins=midi_bins,
@@ -195,8 +197,8 @@ def get_data_dictionary(encoding=None, midi_bins=False, nperseg=4096, noverlap=2
 
 def get_data_file_names(printing=False):
     file_names = list()
-    for file_name in os.listdir('wav_files'):
-        file_name, _ = os.path.splitext(file_name)  # remove file extension from the filename
+    for file_name in listdir('wav_files'):
+        file_name, _ = splitext(file_name)  # remove file extension from the filename
         file_names.insert(0, file_name)
     file_names.reverse()
     if printing:
@@ -204,8 +206,8 @@ def get_data_file_names(printing=False):
     return file_names
 
 
-def flatten_array_of_arrays(array_of_arrays, inserting_file_separators=False, features=True, printing=False,
-                            deep_printing=False):
+def flatten_array_of_arrays(array_of_arrays, inserting_file_separators=False, encoding=None, features=True,
+                            printing=False, deep_printing=False):
     flattened_data = list()
     channels_present = len(array_of_arrays[0].shape) == 3
     number_of_channels = None
@@ -225,7 +227,9 @@ def flatten_array_of_arrays(array_of_arrays, inserting_file_separators=False, fe
             else:
                 if deep_printing:
                     print('EoF')
-                flattened_data.insert(0, 'EoF')
+                end_of_file_marker = encoder.encode_ground_truth_array('EoF', current_encoding=None,
+                                                                       desired_encoding=encoding)
+                flattened_data.insert(0, end_of_file_marker)
 
     if printing:
         print(f'array_of_arrays[0].shape: {array_of_arrays[0].shape}')
@@ -244,14 +248,14 @@ def flatten_data(x, y):
     return flatten_array_of_arrays(x), flatten_array_of_arrays(y)
 
 
-def flatten_split_data(x_train, y_train, x_val, y_val, inserting_file_separators=True, printing=False):
-    return flatten_array_of_arrays(x_train, inserting_file_separators=inserting_file_separators,
+def flatten_split_data(x_train, y_train, x_val, y_val, inserting_file_separators=True, encoding=None, printing=False):
+    return flatten_array_of_arrays(x_train, inserting_file_separators=inserting_file_separators, encoding=encoding,
                                    features=True, printing=printing),\
-           flatten_array_of_arrays(y_train, inserting_file_separators=inserting_file_separators,
+           flatten_array_of_arrays(y_train, inserting_file_separators=inserting_file_separators, encoding=encoding,
                                    features=False, printing=printing),\
-           flatten_array_of_arrays(x_val, inserting_file_separators=inserting_file_separators,
+           flatten_array_of_arrays(x_val, inserting_file_separators=inserting_file_separators, encoding=encoding,
                                    features=True, printing=printing),\
-           flatten_array_of_arrays(y_val, inserting_file_separators=inserting_file_separators,
+           flatten_array_of_arrays(y_val, inserting_file_separators=inserting_file_separators, encoding=encoding,
                                    features=False, printing=printing)
 
 
@@ -306,19 +310,19 @@ def split_dictionary(dictionary, n_splits=1, test_size=0.1, printing=False):
 
     for file_name in dictionary.keys():
         x.insert(0, file_name)
-        y.insert(0, midi_manager.encode_file_name(file_name))
+        y.insert(0, encoder.encode_file_name(file_name))
     x = np.array(x)[::-1]
     y = np.array(y)[::-1]
-
-    if printing:
-        print(f'number of files: {number_of_files}\n')
-        print(f'x: {x.shape}\n{x}\n')
-        print(f'y: {y.shape}\n{y}')
 
     sss = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=42)
 
     for training_indices, validation_indices in sss.split(x, y):
         training_file_names, validation_file_names = x[training_indices], x[validation_indices]
+
+    if printing:
+        print(f'number of files: {number_of_files}\n')
+        print(f'training file names: {len(training_file_names)}\n{training_file_names}\n')
+        print(f'validation file names: {len(validation_file_names)}\n{validation_file_names}\n\n')
 
     x_train = np.empty(len(training_file_names), dtype=object)
     y_train = np.empty(len(training_file_names), dtype=object)
@@ -344,15 +348,15 @@ def get_data_periodograms_flattened(midi_bins=False, nperseg=4096, noverlap=2048
     sources = list()
 
     # for each wav file in the data directory
-    for file_name in os.listdir('wav_files'):
-        if os.path.isfile(f'wav_files/{file_name}'):
+    for file_name in listdir('wav_files'):
+        if isfile(f'wav_files/{file_name}'):
 
             # get the spectrogram of the audio file
             _, _, spectrogram = get_spectrogram(f'{path}/{file_name}', using_midi_bins=midi_bins,
                                                 nperseg=nperseg, noverlap=noverlap, strategy=strategy)
 
             # and get the ground-truth note for each periodogram in the spectrum
-            file_name, _ = os.path.splitext(file_name)  # remove file extension from the filename
+            file_name, _ = splitext(file_name)  # remove file extension from the filename
             ground_truth = get_monophonic_ground_truth(f'{path}/{file_name}.wav', f'xml_files/{file_name}.musicxml',
                                                        encoding=ground_truth_encoding,
                                                        nperseg=nperseg, noverlap=noverlap)
@@ -384,15 +388,15 @@ def get_data_periodograms_not_flattened(midi_bins=False, nperseg=4096, noverlap=
     y_list = list()
 
     # for each wav file in the data directory
-    for filename in os.listdir('wav_files'):
-        if os.path.isfile(f'wav_files/{filename}'):
+    for filename in listdir('wav_files'):
+        if isfile(f'wav_files/{filename}'):
 
             # get the spectrogram of the audio file
             _, _, spectrogram = get_spectrogram(f'{path}/{filename}', using_midi_bins=midi_bins,
                                                 nperseg=nperseg, noverlap=noverlap, strategy=strategy)
 
             # and get the ground-truth note for each periodogram in the spectrum
-            filename, _ = os.path.splitext(filename)  # remove file extension from the filename
+            filename, _ = splitext(filename)  # remove file extension from the filename
             ground_truth = get_monophonic_ground_truth(f'{path}/{filename}.wav', f'xml_files/{filename}.musicxml',
                                                        encoding=ground_truth_encoding,
                                                        nperseg=nperseg, noverlap=noverlap)
@@ -420,13 +424,13 @@ def get_data(encoding='midi_pitch', midi_bins=False, nperseg=4096, noverlap=2048
         wav_path = f'wav_files/{subdirectory}'
 
     # for each wav file in the data directory
-    for filename in os.listdir('wav_files'):
-        if os.path.isfile(f'wav_files/{filename}'):
+    for filename in listdir('wav_files'):
+        if isfile(f'wav_files/{filename}'):
             # get the spectrogram of the audio file
             f, t, sxx = get_spectrogram_scipy(f'{wav_path}/{filename}', using_midi_bins=midi_bins,
                                               nperseg=nperseg, noverlap=noverlap)
             # and get the ground-truth note for each periodogram in the spectrum
-            filename, _ = os.path.splitext(filename)  # remove file extension from the filename
+            filename, _ = splitext(filename)  # remove file extension from the filename
             ground_truth = get_monophonic_ground_truth(f'{wav_path}/{filename}.wav',
                                                        f'xml_files/{filename}.musicxml',
                                                        encoding=encoding, nperseg=nperseg, noverlap=noverlap)
@@ -508,11 +512,11 @@ def preprocess_data(x_train, y_train, x_val, y_val, encoding='midi_pitch',
     x_val = x_val.reshape(x_val.shape[0], x_val.shape[1], 1)
 
     y_train = y_train - start + 1
-    mask_train = np.where(y_train == midi_manager.REST_ENCODING - start + 1)
+    mask_train = np.where(y_train == encoder.REST_MIDI_ENCODING - start + 1)
     y_train[mask_train] = 0
 
     y_val = y_val - start + 1
-    mask_val = np.where(y_val == midi_manager.REST_ENCODING - start + 1)
+    mask_val = np.where(y_val == encoder.REST_MIDI_ENCODING - start + 1)
     y_val[mask_val] = 0
 
     if encoding == 'one_hot':
@@ -576,32 +580,32 @@ def print_split_data(x_train, y_train, x_val, y_val):
     print(y_val)
 
 
-def save_data_arrays(x_train, y_train, x_val, y_val, version, printing=True):
+def save_data_arrays(x_train, y_train, x_val, y_val, save_name, printing=True):
 
-    path = f'data_arrays/{version}'
+    path = f'data_arrays/{save_name}'
 
     try:
-        os.mkdir(path)
+        mkdir(path)
     except OSError:
         print(f'Creation of the directory \"{path}\" failed.')
     else:
         if printing:
             print(f'Successfully created the directory \"{path}\".')
 
-    np.save(f'data_arrays/{version}/x_train.npy', x_train)
-    np.save(f'data_arrays/{version}/y_train.npy', y_train)
-    np.save(f'data_arrays/{version}/x_val.npy', x_val)
-    np.save(f'data_arrays/{version}/y_val.npy', y_val)
+    np.save(f'data_arrays/{save_name}/x_train.npy', x_train)
+    np.save(f'data_arrays/{save_name}/y_train.npy', y_train)
+    np.save(f'data_arrays/{save_name}/x_val.npy', x_val)
+    np.save(f'data_arrays/{save_name}/y_val.npy', y_val)
 
     if printing:
         print(f'Successfully saved data arrays in the directory \"{path}\".')
 
 
-def load_data_arrays(version):
-    x_train = np.load(f'data_arrays/{version}/x_train.npy')
-    y_train = np.load(f'data_arrays/{version}/y_train.npy')
-    x_val = np.load(f'data_arrays/{version}/x_val.npy')
-    y_val = np.load(f'data_arrays/{version}/y_val.npy')
+def load_data_arrays(save_name):
+    x_train = np.load(f'data_arrays/{save_name}/x_train.npy')
+    y_train = np.load(f'data_arrays/{save_name}/y_train.npy')
+    x_val = np.load(f'data_arrays/{save_name}/x_val.npy')
+    y_val = np.load(f'data_arrays/{save_name}/y_val.npy')
     return x_train, y_train, x_val, y_val
 
 
@@ -611,8 +615,8 @@ def get_model_definition(model_name, x_shape, printing=False):
         model = get_model_baseline(x_shape, printing=printing)
     elif model_name == 'new':
         model = get_model_new(x_shape, printing=printing)
-    elif model_name == 'new_dropout':
-        model = get_model_new_dropout(x_shape, printing=printing)
+    elif model_name == 'freq_dropout':
+        model = get_model_freq_dropout(x_shape, printing=printing)
     elif model_name == 'midi':
         model = get_model_midi(x_shape, printing=printing)
     elif model_name == 'midi_dropout':
@@ -651,7 +655,7 @@ def train_model(model, model_name, x_train, y_train, x_val, y_val, optimizer='ad
     return model
 
 
-def train(model_name, save_name, x_train, y_train, x_val, y_val, optimizer='adam', epochs=500, patience=2,
+def train(model_name, save_name, x_train, y_train, x_val, y_val, optimizer='adam', epochs=500, patience=10,
           metrics=['accuracy'], min_delta=0, saving=True, printing=True):
     model = get_model_definition(model_name, x_train.shape, printing=printing)
     train_model(model, save_name, x_train, y_train, x_val, y_val, optimizer=optimizer, epochs=epochs, patience=patience,
@@ -704,10 +708,10 @@ def show_example_prediction(model_name, i=0, version=1, x_val=None, y_val=None, 
     example_ground_truth = example[1]
     i_prediction = np.argmax(example_prediction)
     i_ground_truth = np.argmax(example_ground_truth)
-    midi_pitch_prediction = midi_manager.interpret_one_hot(example_prediction)
-    midi_pitch_ground_truth = midi_manager.interpret_one_hot(example_ground_truth)
-    note_name_prediction = midi_manager.get_note_name(midi_pitch_prediction)
-    note_name_ground_truth = midi_manager.get_note_name(midi_pitch_ground_truth)
+    midi_pitch_prediction = encoder.interpret_one_hot(example_prediction)
+    midi_pitch_ground_truth = encoder.interpret_one_hot(example_ground_truth)
+    note_name_prediction = encoder.get_note_name(midi_pitch_prediction)
+    note_name_ground_truth = encoder.get_note_name(midi_pitch_ground_truth)
 
     if printing_in_full:
         print(f'\nmodel_input: {model_input.shape}')
@@ -832,7 +836,7 @@ def label_encode_dictionary(dictionary, inserting_file_separators=False):
                 if label == 'EoF':
                     label_encoding = 89
                 else:
-                    label_encoding = midi_manager.get_midi_pitch(label) - 20
+                    label_encoding = encoder.get_midi_pitch(label) - 20
             if label_encoding == -21:
                 label_encoding = 0
             ground_truth.insert(0, label_encoding)
@@ -916,8 +920,8 @@ def remove_excess_rests(x, y, sources=None, encoding=None, printing=False):
     average_non_rest_count = np.average(y_counts[1:])
     number_of_rests_to_keep = ceil(average_non_rest_count)
 
-    rest_representation = midi_manager.encode_ground_truth_array(np.array(['rest']),
-                                                                 current_encoding=None, desired_encoding=encoding)[0]
+    rest_representation = encoder.encode_ground_truth_array(np.array(['rest']),
+                                                            current_encoding=None, desired_encoding=encoding)[0]
 
     rest_indices = np.where(y == rest_representation)[0]
     np.random.seed(42)
@@ -986,9 +990,9 @@ def main():
     # x = np.concatenate((x, spectral_powers), axis=1)
     # x = x.reshape(x.shape[0], x.shape[1], 1)
     # x_train, y_train, x_val, y_val = split_data(x, y)
-    x_train, y_train, x_val, y_val = load_data_arrays('debugged')
-    print_split_data(x_train, y_train, x_val, y_val)
-    train('freq_dense', 'label_freq_050ms_remove_rests_10_powers_log_k1_norm_dense_debugged', x_train, y_train, x_val, y_val, printing=True, patience=10)
+    # x_train, y_train, x_val, y_val = load_data_arrays('debugged')
+    # print_split_data(x_train, y_train, x_val, y_val)
+    # train('freq_dense', 'label_freq_050ms_remove_rests_10_powers_log_k1_norm_dense_debugged', x_train, y_train, x_val, y_val, printing=True, patience=10)
 
     # x, y = get_data_periodograms_not_flattened(midi_bins=True, nperseg=8192, noverlap=4096)
     # x, y = add_first_order_difference(x, y)
@@ -1010,7 +1014,13 @@ def main():
     # data = label_encode_dictionary(data, inserting_file_separators=True)
     # x, y = flatten_dictionary(data, inserting_file_separators=True, printing=True, encoded=True)
     #
-    # train('rnn', 'RNN_label_freq_050ms', x, y, x, y, printing=True, epochs=1)
+    # x_train, y_train, x_val, y_val = load_data_arrays('RNN_split_on_file_names_unbalanced_with_powers')
+    # print_split_data(x_train, y_train, x_val, y_val)
+    # train('rnn', 'RNN_label_freq_050ms_2', x_train, y_train, x_val, y_val, printing=True, epochs=1)
+    x_train, y_train, x_val, y_val = load_data_arrays('label_freq_025ms_with_powers_remove_rests_normalised')
+    print_split_data(x_train, y_train, x_val, y_val)
+    train('midi_dropout', 'label_freq_025ms_with_powers_remove_rests_log_k1_normalised_using_dropout_midi_model',
+          x_train, y_train, x_val, y_val, printing=True)
     # note = 'A0'
     # example = 0
     # features = data[f'single_{note}_{example}']['features']
