@@ -142,7 +142,7 @@ def get_decoder_outputs(decoder_inputs, printing=False):
     return decoder_outputs
 
 
-def load_audio_files_and_get_ground_truth(window_size, splitting_on_file_name=False, using_midi_bins=False,
+def load_audio_files_and_get_ground_truth(window_size, tracking_file_names=False, using_midi_bins=False,
                                           fft_strategy='scipy', wav_directory='wav_files', xml_directory='xml_files'):
 
     x_list = list()
@@ -167,16 +167,16 @@ def load_audio_files_and_get_ground_truth(window_size, splitting_on_file_name=Fa
             for i in range(len(ground_truth)):
                 x_list.insert(0, spectrogram[:, i])
                 y_list.insert(0, ground_truth[i])
-                if splitting_on_file_name:
+                if tracking_file_names:
                     sources.insert(0, file_name)
 
     # turn the lists into arrays, reversing them to reverse the effects of inserting at the front of the lists
     x = np.array(x_list)[::-1]
     y = np.array(y_list)[::-1]
-    if splitting_on_file_name:
+    if tracking_file_names:
         sources = np.array(sources)[::-1]
 
-    if splitting_on_file_name:
+    if tracking_file_names:
         return x, y, sources
     else:
         return x, y
@@ -238,7 +238,7 @@ def add_first_order_differences(x, y, sources, printing=False):
     return x_two_channels, y_without_firsts, sources
 
 
-def balance_rests(x, y, sources=None, encoding=None, printing=False):
+def balance_rests(x, y, sources=None, encoding=None, printing=False, current_encoding=None):
 
     # sanity-test inputs
     if sources is not None:
@@ -247,7 +247,12 @@ def balance_rests(x, y, sources=None, encoding=None, printing=False):
         assert len(x) == len(y)
 
     y_targets, y_counts = np.unique(y, return_counts=True)
-    average_non_rest_count = np.average(y_counts[1:])
+
+    if current_encoding is None:
+        average_non_rest_count = np.average(y_counts[:-1])
+    else:
+        average_non_rest_count = np.average(y_counts[1:])
+
     number_of_rests_to_keep = ceil(average_non_rest_count)
 
     rest_representation = encode_ground_truth_array(np.array(['rest']),
@@ -279,10 +284,15 @@ def balance_rests(x, y, sources=None, encoding=None, printing=False):
         return x_new, y_new, sources
 
 
-def normalise(x, strategy='k1', taking_logs=True,
+def normalise(x, strategy='k1', taking_logs=True, using_midi_bins=False,
               spectral_powers_present=True, taking_spectral_powers_logs=True, spectral_powers_strategy='max',
-              first_order_differences_present=True,
+              first_order_differences_present=True, using_saved_maximum=False,
               printing=False):
+
+    shape = x.shape
+
+    if using_midi_bins:
+        x += np.nextafter(0.0, 1.0)
 
     if printing:
         print(f'Before deconstruction:\n\nx: {x.shape}\n{x}\n\n')
@@ -322,10 +332,11 @@ def normalise(x, strategy='k1', taking_logs=True,
             print(f'first_order_differences: {first_order_differences.shape}\n{first_order_differences}\n\n')
 
     if taking_logs:
-        x = np.log10(x)
+        x = np.log10(x, where=(x > 0))
         if first_order_differences_present:
             first_order_differences_negatives = np.array((first_order_differences < 0), dtype=int)
-            first_order_differences = np.log10(np.abs(first_order_differences))
+            first_order_differences = np.abs(first_order_differences)
+            first_order_differences = np.log10(first_order_differences, where=(first_order_differences > 0))
     if strategy == 'k1':
         x = normalize(x, axis=1)
         if first_order_differences_present:
@@ -344,12 +355,19 @@ def normalise(x, strategy='k1', taking_logs=True,
 
     if spectral_powers_present:
         if taking_spectral_powers_logs:
-            spectral_powers = np.log10(spectral_powers)
+            spectral_powers = np.log10(spectral_powers, where=(spectral_powers > 0))
             if first_order_differences_present:
                 spectral_power_differences_negatives = np.array((spectral_power_differences < 0), dtype=int)
-                spectral_power_differences = np.log10(np.abs(spectral_power_differences))
+                spectral_power_differences = np.abs(spectral_power_differences)
+                spectral_power_differences = np.log10(spectral_power_differences,
+                                                      where=(spectral_power_differences > 0))
         if spectral_powers_strategy == 'max':
-            spectral_powers = spectral_powers / np.amax(spectral_powers)
+            # np.save(f'data_arrays/maximum_spectral_power_{shape}.npy', np.array([np.amax(spectral_powers)]))
+            if using_saved_maximum:
+                maximum_spectral_power = np.load(f'data_arrays/maximum_spectral_power_(41773, 89, 1).npy')[0]
+                spectral_powers = spectral_powers / maximum_spectral_power
+            else:
+                spectral_powers = spectral_powers / np.amax(spectral_powers)
             if first_order_differences_present:
                 spectral_power_differences = spectral_power_differences / np.amax(spectral_power_differences)
         elif spectral_powers_strategy == 'k0':
@@ -416,7 +434,7 @@ def split_on_file_names(dictionary, printing=False):
     return x_train, y_train, x_val, y_val  # not flat
 
 
-def get_data(window_size, wav_directory='wav_files', xml_directory='xml_files',
+def get_data(window_size, using_midi_bins=False, wav_directory='wav_files', xml_directory='xml_files',
              splitting_on_file_name=True, adding_spectral_powers=True, adding_first_order_differences=True,
              balancing_rests=True, normalising=True, target_encoding='label', adding_file_separators=True,
              saving=False, save_name=None, printing=False, deep_printing=False):
@@ -424,13 +442,13 @@ def get_data(window_size, wav_directory='wav_files', xml_directory='xml_files',
     sources = None
 
     if splitting_on_file_name or adding_first_order_differences:
-        x, y, sources = load_audio_files_and_get_ground_truth(window_size, wav_directory=wav_directory,
-                                                              xml_directory=xml_directory,
-                                                              splitting_on_file_name=splitting_on_file_name)
+        x, y, sources = load_audio_files_and_get_ground_truth(window_size, using_midi_bins=using_midi_bins,
+                                                              wav_directory=wav_directory, xml_directory=xml_directory,
+                                                              tracking_file_names=True)
     else:
-        x, y = load_audio_files_and_get_ground_truth(window_size, wav_directory=wav_directory,
-                                                     xml_directory=xml_directory,
-                                                     splitting_on_file_name=splitting_on_file_name)
+        x, y = load_audio_files_and_get_ground_truth(window_size, using_midi_bins=using_midi_bins,
+                                                     wav_directory=wav_directory, xml_directory=xml_directory,
+                                                     tracking_file_names=False)
 
     if adding_spectral_powers:
         x = add_spectral_powers(x, printing=deep_printing)
@@ -461,6 +479,7 @@ def get_data(window_size, wav_directory='wav_files', xml_directory='xml_files',
         x_train, y_train, x_val, y_val = split(x, y)
 
     if printing:
+        print_counts_table(y, y_train, y_val)
         print_split_data(x_train, y_train, x_val, y_val)
 
     if saving and save_name is not None:
@@ -474,7 +493,7 @@ def get_data_for_rnn(window_size, wav_directory='wav_files', xml_directory='xml_
                      saving=False, save_name=None, printing=False, deep_printing=False):
 
     x, y, sources = load_audio_files_and_get_ground_truth(window_size, wav_directory=wav_directory,
-                                                          xml_directory=xml_directory, splitting_on_file_name=True)
+                                                          xml_directory=xml_directory, tracking_file_names=True)
 
     maximum_number_of_windows = get_maximum_number_of_windows(sources, printing=deep_printing)
 
@@ -517,13 +536,14 @@ def get_data_for_rnn(window_size, wav_directory='wav_files', xml_directory='xml_
 
 
 def main():
-    # get_data(50, wav_directory='wav_files_simple', xml_directory='xml_files_simple',
-    #          balancing_rests=False, adding_first_order_differences=False,
-    #          splitting_on_file_name=True, adding_file_separators=False,
-    #          printing=True, deep_printing=True,
-    #          saving=False, save_name='RNN_split_on_file_names_unbalanced_with_powers')
-    get_data_for_rnn(50, wav_directory='wav_files_simple', xml_directory='xml_files_simple',
-                     saving=False, save_name='rnn_label_freq_050ms_powers', printing=True, deep_printing=True)
+    get_data(25, wav_directory='wav_files_simple', xml_directory='xml_files_simple',
+             using_midi_bins=True,
+             balancing_rests=True, adding_first_order_differences=False,
+             splitting_on_file_name=False, adding_file_separators=False,
+             printing=True, deep_printing=True,
+             saving=False, save_name='label_midi_025ms_with_powers_remove_rests_normalised')
+    # get_data_for_rnn(50, wav_directory='wav_files_simple', xml_directory='xml_files_simple',
+    #                  saving=False, save_name='rnn_label_freq_050ms_powers', printing=True, deep_printing=True)
     # encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,\
     #     encoder_inputs_val, decoder_inputs_val, decoder_outputs_val = load_rnn_data_arrays('rnn')
     # print_rnn_split_data(encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,
