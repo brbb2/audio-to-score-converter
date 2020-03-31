@@ -1,5 +1,4 @@
 from encoder import label_encode_midi_pitch, decode_midi_pitch, decode_label, get_pitch_array
-from ground_truth_converter import get_notes_from_xml_file
 from data_processor import add_spectral_powers, normalise
 from neural_network_trainer import load_model
 from audio_processor import get_spectrogram
@@ -9,6 +8,8 @@ import matplotlib.pyplot as plt
 from string import digits
 from encoder import pitch_offsets, pitch_offset_names, key_signature_notes, key_signature_encodings
 from encoder import get_relative_major, get_relative_minor
+from ground_truth_converter import get_ground_truth_notes
+from audio_processor import get_precise_window_duration_in_seconds
 
 
 def get_pitch_probabilities_for_each_window(file_name, wav_path='wav_files_simple', window_size=25,
@@ -89,8 +90,10 @@ def get_most_likely_pitch_for_each_window(file_name, wav_path='wav_files_simple'
         return most_likely_pitch_for_each_window
 
 
-def sweep(most_likely_pitch_for_each_window, threshold=0.9, window_size=25, quantising=False, quantise_degree=0.25,
+def sweep_old(most_likely_pitch_for_each_window, threshold=0.9, window_size=25, quantising=False, quantise_degree=0.25,
           printing=False):
+
+    window_duration = get_precise_window_duration_in_seconds(window_size)
 
     # initialise required variables
     i = 0
@@ -110,7 +113,7 @@ def sweep(most_likely_pitch_for_each_window, threshold=0.9, window_size=25, quan
         # if a new pitch is encountered, having a probability above the user-determined threshold,
         # then interpret this to mean that a new note has been found
         if this_note_name != current_note_name and this_note_probability > threshold:
-            current_note_offset_time = i * window_size / 1000.0
+            current_note_offset_time = i * window_duration
             # if the new note is the first note to be found
             if this_is_the_first_note:
                 # then the first note has now been seen, and so new notes can no longer be the first note
@@ -126,7 +129,7 @@ def sweep(most_likely_pitch_for_each_window, threshold=0.9, window_size=25, quan
                         predicted_notes.insert(0, ('rest', 0.0, current_note_offset_time))
             else:
                 # otherwise, add the previous current note, now that its offset time has been discovered
-
+                print(i)
                 if quantising:
                     quantised_current_note_onset_time = quantise(current_note_onset_time, quantise_degree)
                     quantised_current_note_offset_time = quantise(current_note_offset_time, quantise_degree)
@@ -138,12 +141,12 @@ def sweep(most_likely_pitch_for_each_window, threshold=0.9, window_size=25, quan
 
             # update the current-note details
             current_note_name = this_note_name
-            current_note_onset_time = i * window_size / 1000.0
+            current_note_onset_time = i * window_duration
 
         i += 1
 
     # after the loop, get the information needed to check whether there is one last note to add
-    required_duration_of_prediction = len(most_likely_pitch_for_each_window) * window_size / 1000.0
+    required_duration_of_prediction = len(most_likely_pitch_for_each_window) * window_duration
     if len(predicted_notes) > 0:
         last_found_note_name = predicted_notes[0][0]
         last_found_offset_time = predicted_notes[0][2]
@@ -183,6 +186,31 @@ def sweep(most_likely_pitch_for_each_window, threshold=0.9, window_size=25, quan
     return predicted_notes
 
 
+def sweep(pitch_probabilities_for_each_pitch, threshold, window_size=25, printing=False):
+    window_duration = get_precise_window_duration_in_seconds(window_size)
+    pitch_probabilities_for_each_pitch_modified = np.zeros(shape=(pitch_probabilities_for_each_pitch.shape[0],
+                                                                  pitch_probabilities_for_each_pitch.shape[1] + 2))
+    pitch_probabilities_for_each_pitch_modified[:, 1:-1] = pitch_probabilities_for_each_pitch
+    notes_detected = list()
+    for midi_pitch_label in range(len(pitch_probabilities_for_each_pitch)):
+        note_onset = 0.0
+        probability_of_pitch_over_time = pitch_probabilities_for_each_pitch_modified[midi_pitch_label]
+        for i in range(pitch_probabilities_for_each_pitch.shape[1] + 1):
+            if probability_of_pitch_over_time[i] < threshold < probability_of_pitch_over_time[i + 1]:
+                note_onset = quantise(i * window_duration)
+            elif probability_of_pitch_over_time[i + 1] < threshold < probability_of_pitch_over_time[i]:
+                note_offset = quantise(i * window_duration)
+                note_name = decode_label(midi_pitch_label)
+                if note_onset < note_offset:
+                    notes_detected.insert(0, (note_name, note_onset, note_offset))
+    notes_detected = sorted(notes_detected, key=lambda x: x[1])
+
+    if printing:
+        print(f'{len(notes_detected):>4} {notes_detected}')
+
+    return notes_detected
+
+
 def get_pitches_of_notes(notes):
     pitches_of_notes = list()
     for n in notes:
@@ -193,20 +221,30 @@ def get_pitches_of_notes(notes):
 
 def infer_key_signature(predicted_notes, measure_quarter_length=4, bpm=120, printing=False):
 
-    predicted_pitches_of_notes = get_pitches_of_notes(predicted_notes)
-    predicted_pitches_of_notes.remove('rest')
-
-    for i in range(len(predicted_pitches_of_notes)):
+    # remove irrelevant information from 'predicted_notes': namely, timing data, octaves and rests
+    predicted_pitches_of_notes = get_pitches_of_notes(predicted_notes)  # remove timing data
+    predicted_pitches_of_notes.remove('rest')  # remove rests
+    for i in range(len(predicted_pitches_of_notes)):  # remove the octave from the given name of each predicted note
         predicted_pitches_of_notes[i] = predicted_pitches_of_notes[i].translate({ord(k): None for k in digits})
+
+    # for each of the 12 chromatic pitches, count how many times each pitch occurs in the predicted notes
     unique_pitches_of_notes, pitch_counts = np.unique(np.array(predicted_pitches_of_notes), return_counts=True)
     pitch_offset_counts = np.zeros(12, dtype=int)
-
     for i in range(len(unique_pitches_of_notes)):
         pitch_offset_counts[pitch_offsets[unique_pitches_of_notes[i]]] = pitch_counts[i]
 
-    most_common_pitch = pitch_offset_names[np.argmax(pitch_offset_counts)]
+    # record the maximum count for any pitch and find the pitches with this count
     count_of_most_common_pitch = np.max(pitch_offset_counts)
+    most_common_pitches_mask = np.argwhere(pitch_offset_counts == count_of_most_common_pitch).flatten()
+    most_common_pitches = list()
+    for i in most_common_pitches_mask:
+        most_common_pitches.insert(0, pitch_offset_names[i])
+    count_of_most_common_pitch = np.max(pitch_offset_counts)
+    most_common_pitches.reverse()
 
+    # find the best major-key candidates for the predicted notes
+    # by matching pitches in the list of predicted notes
+    # with the pitches present in each major key
     best_major_key_signatures = list()
     best_number_of_matching_pitches = 0
     for key_signature in key_signature_notes.keys():
@@ -217,16 +255,16 @@ def infer_key_signature(predicted_notes, measure_quarter_length=4, bpm=120, prin
                 number_of_matching_pitches += 1
         if number_of_matching_pitches > best_number_of_matching_pitches:
             best_number_of_matching_pitches = number_of_matching_pitches
-            best_major_key_signatures = list(key_signature)
+            best_major_key_signatures = list()
+            best_major_key_signatures.insert(0, key_signature)
         elif number_of_matching_pitches == best_number_of_matching_pitches:
             best_major_key_signatures.insert(0, key_signature)
 
+    # for each major key in the list of best major-key candidates, get the relative minor key
     best_minor_key_signatures = list()
-
     for major_key_signature in best_major_key_signatures:
         relative_minor_key = get_relative_minor(major_key_signature)
         best_minor_key_signatures.insert(0, relative_minor_key)
-
     best_minor_key_signatures.reverse()
 
     pitch_of_first_note = None
@@ -241,29 +279,44 @@ def infer_key_signature(predicted_notes, measure_quarter_length=4, bpm=120, prin
     pitch_offset_of_first_note = pitch_offsets[pitch_of_first_note]
     count_of_first_pitch = pitch_offset_counts[pitch_offset_of_first_note]
 
-    printing = True
+    # TODO: improve this
+    predicted_key_signature = pitch_of_first_note
+    predicted_key_is_a_minor_key = pitch_of_first_note in best_minor_key_signatures
+
+    # encode the predicted key signature to match music21's key-signature representation
+    encoded_key_signature = key_signature_encodings[predicted_key_signature]
+
+    # if the predicted key is a minor key, find the relative major key and encode that
+    if predicted_key_is_a_minor_key:
+        relative_major = get_relative_major(pitch_of_first_note)
+        encoded_key_signature = key_signature_encodings[relative_major]
+
     if printing:
         print(f'    unique pitches present: {unique_pitches_of_notes}')
         print(f'              pitch counts: {pitch_offset_counts}\n')
-        print(f'         most common pitch: {most_common_pitch}')
+        print(f'       most common pitches: {most_common_pitches}')
         print(f'count of most common pitch: {count_of_most_common_pitch}\n')
         print(f' first bar-beginning pitch: {pitch_of_first_note}')
         print(f'      count of first pitch: {count_of_first_pitch}\n')
         print(f' best major key signatures: {best_major_key_signatures}')
-        print(f' best minor key signatures: {best_minor_key_signatures}')
+        print(f' best minor key signatures: {best_minor_key_signatures}\n')
+        if predicted_key_is_a_minor_key:
+            key_type = 'minor'
+        else:
+            key_type = 'major'
+        if encoded_key_signature >= 0:
+            accidentals = 'sharps'
+        else:
+            accidentals = 'flats'
+        print(f'   predicted_key_signature: {predicted_key_signature} {key_type}')
+        print(f'     encoded key signature: {encoded_key_signature} ({abs(encoded_key_signature)} {accidentals})\n')
 
-    # TODO: improve this
-    encoded_key_signature = key_signature_encodings[pitch_of_first_note]
-    if pitch_of_first_note in best_minor_key_signatures:
-        relative_major = get_relative_major(pitch_of_first_note)
-        encoded_key_signature = key_signature_encodings[relative_major]
-        print(encoded_key_signature)
     return encoded_key_signature
 
 
 def create_predicted_score(predicted_notes, save_name='test', bpm=120, save_path='test_files/test_outputs',
-                           printing=False, saving=True):
-    predicted_key_signature = infer_key_signature(predicted_notes)
+                           deep_printing=False, saving=True):
+    predicted_key_signature = infer_key_signature(predicted_notes, printing=deep_printing)
     s = stream.Stream()
     s.append(key.KeySignature(predicted_key_signature))
     for predicted_note in predicted_notes:
@@ -272,12 +325,7 @@ def create_predicted_score(predicted_notes, save_name='test', bpm=120, save_path
             n = note.Rest(quarterLength=quarter_length)
         else:
             n = note.Note(nameWithOctave=predicted_note[0], quarterLength=quarter_length)
-        if printing:
-            print(n)
         s.append(n)
-
-    if printing:
-        print(f'{s}')
 
     if saving:
         if save_path is None:
@@ -344,35 +392,23 @@ def quantise(value, degree=0.25, quantising_time=True, bpm=120):
 
 
 def predict(file_name, threshold, wav_path='test_files/test_wavs', xml_path='test_files/test_xmls',
-            window_size=25, saving=True, save_path='test_files/test_outputs', printing=False):
+            window_size=25, saving=True, save_path='test_files/test_outputs', quantising=True,
+            printing=False, deep_printing=False):
 
-    if wav_path is None:
-        wav_file_full_path = f'{file_name}.wav'
-    else:
-        wav_file_full_path = f'{wav_path}/{file_name}.wav'
-
-    if xml_path is None:
-        xml_file_full_path = f'{file_name}.musicxml'
-    else:
-        xml_file_full_path = f'{xml_path}/{file_name}.musicxml'
-
-    _, times, _ = get_spectrogram(wav_file_full_path, window_size=window_size)
-    ground_truth_duration = len(times) * window_size / 1000.0
-    ground_truth_notes = get_notes_from_xml_file(xml_file_full_path, ground_truth_duration)
-    pitches_and_probabilities, times = get_most_likely_pitch_for_each_window(file_name,
-                                                                             wav_path=wav_path, returning_times=True)
-    predicted_notes = sweep(pitches_and_probabilities, quantising=True, threshold=threshold)
-
-    # TODO: delete this
-    create_predicted_score(predicted_notes, saving=False, save_name=f'{file_name}_output_{threshold}',
-                           save_path=save_path)
+    # pitches_and_probabilities, times = get_most_likely_pitch_for_each_window(file_name,
+    #                                                                          wav_path=wav_path, returning_times=True)
+    # predicted_notes = sweep(pitches_and_probabilities, quantising=quantising, threshold=threshold)
+    pitch_probabilities_for_each_pitch = get_pitch_probabilities_for_each_pitch(file_name, wav_path=wav_path,
+                                                                                using_saved_maximum=True)
+    predicted_notes = sweep(pitch_probabilities_for_each_pitch, threshold)
 
     if saving:
         create_predicted_score(predicted_notes, saving=True, save_name=f'{file_name}_output_{threshold}',
-                               save_path=save_path)
+                               save_path=save_path, deep_printing=deep_printing)
 
     if printing:
-        print(f'\n{file_name}')
+        ground_truth_notes = get_ground_truth_notes(file_name, window_size, wav_path=wav_path, xml_path=xml_path)
+        print(f'\n\"{file_name}\"')
         print(f'\nnotes picked by system: {len(predicted_notes):>4} {predicted_notes}')
         print(f' notes in the XML file: {len(ground_truth_notes):>4} {ground_truth_notes}')
 
@@ -385,11 +421,12 @@ def main():
     # wav_path = f'wav_files_simple'
     # xml_path = f'xml_files_simple'
 
-    file_name = 'Billie_Jean_Riff'
+    file_name = 'Frere_Jacques'
     wav_path = f'test_files/test_wavs'
     xml_path = f'test_files/test_xmls'
+    threshold = 0.6
 
-    predict(file_name, threshold=0.2, saving=True, printing=True)
+    predict(file_name, threshold=threshold, saving=True, printing=True, deep_printing=True)
 
     # graph plotting
     pitch_probabilities_for_each_pitch, times = get_pitch_probabilities_for_each_pitch(file_name,
@@ -402,8 +439,8 @@ def main():
     # plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch,
     #                                        file_name=f'{file_name}_using_saved_maximum', showing=False)
     # plot_all_pitch_probabilities_over_time(times_2, pitch_probabilities_for_each_pitch_2, file_name=file_name)
-    # plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch, threshold=threshold,
-    #                                        file_name=file_name, showing=True)
+    plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch, threshold=threshold,
+                                           file_name=file_name, showing=True)
 
 
 if __name__ == '__main__':
