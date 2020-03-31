@@ -19,7 +19,10 @@ def get_precision(ground_truth_notes, predicted_notes, printing=False):
                 number_of_predicted_notes_correct += 1
                 break
 
-    precision = number_of_predicted_notes_correct / float(len(predicted_notes))
+    if len(predicted_notes) > 0:
+        precision = number_of_predicted_notes_correct / float(len(predicted_notes))
+    else:
+        precision = 0.0
 
     if printing:
         print(f'\nnotes picked by system: {predicted_notes}')
@@ -44,7 +47,10 @@ def get_recall(ground_truth_notes, predicted_notes, printing=False):
                 number_of_correctly_found_notes += 1
                 break
 
-    recall = number_of_correctly_found_notes / float(len(ground_truth_notes))
+    if len(predicted_notes) > 0:
+        recall = number_of_correctly_found_notes / float(len(ground_truth_notes))
+    else:
+        recall = 0.0
 
     if printing:
         print(f'\nnotes picked by system: {predicted_notes}')
@@ -76,17 +82,19 @@ def get_f_score(ground_truth_notes, predicted_notes, precision=None, recall=None
 
 
 def predict_and_evaluate(file_name, threshold, wav_path='test_files/test_wavs', xml_path='test_files/test_xmls',
-                         window_size=25, printing=False):
+                         window_size=25, also_returning_precision_and_recall=False, printing=False):
 
     ground_truth_notes = get_ground_truth_notes(file_name, wav_path=wav_path, xml_path=xml_path,
                                                 window_size=window_size)
 
-    # get the most likely pitch for each window (along with its given probability)
-    pitches_and_probabilities, times = get_most_likely_pitch_for_each_window(file_name, wav_path=wav_path,
-                                                                             returning_times=True)
+    predicted_notes = predict(file_name, threshold=threshold, saving=False)
 
-    # use the pitches of all the windows to predict the notes
-    predicted_notes = sweep(pitches_and_probabilities, quantising=True, threshold=threshold)
+    if also_returning_precision_and_recall:
+        precision = get_precision(ground_truth_notes, predicted_notes, printing=printing)
+        recall = get_recall(ground_truth_notes, predicted_notes, printing=printing)
+    else:
+        precision = None
+        recall = None
 
     f_score = get_f_score(ground_truth_notes, predicted_notes, printing=printing)
 
@@ -98,26 +106,60 @@ def predict_and_evaluate(file_name, threshold, wav_path='test_files/test_wavs', 
         print(f'\nnotes picked by system: {len(predicted_notes):>4} {predicted_notes}')
         print(f' notes in the XML file: {len(ground_truth_notes):>4} {ground_truth_notes}')
         print(f'\nnotes picked by system: {len(pitches_of_predicted_notes):>4} {pitches_of_predicted_notes}')
-        print(f' notes in the XML file: {len(pitches_of_ground_truth_notes):>4} {pitches_of_ground_truth_notes}')
-        print(f'\n               F-score: {f_score:6.4f}')
-
-    return f_score
+        print(f' notes in the XML file: {len(pitches_of_ground_truth_notes):>4} {pitches_of_ground_truth_notes}\n')
+        if also_returning_precision_and_recall:
+            print(f'             precision: {precision:6.4f}')
+            print(f'                recall: {recall:6.4f}')
+        print(f'               F-score: {f_score:6.4f}')
+    if also_returning_precision_and_recall:
+        return f_score, precision, recall
+    else:
+        return f_score
 
 
 def evaluate_all(test_file_names, threshold, wav_path='test_files/test_wavs', xml_path='test_files/test_xmls',
-                 window_size=25, printing=False, deep_printing=False):
+                 window_size=25, tracking_precision_and_recall=False, printing=False, deep_printing=False):
     accuracies = np.zeros(len(test_file_names))
+    if tracking_precision_and_recall:
+        precisions = np.zeros(len(test_file_names))
+        recalls = np.zeros(len(test_file_names))
+    else:
+        precisions = None
+        recalls = None
     for i in range(len(test_file_names)):
         test_file_name = test_file_names[i]
-        accuracy = predict_and_evaluate(test_file_name, threshold=threshold, window_size=window_size,
-                                        printing=deep_printing)
+        if tracking_precision_and_recall:
+            accuracy, precision, recall = predict_and_evaluate(test_file_name, threshold=threshold,
+                                                               window_size=window_size,
+                                                               wav_path=wav_path, xml_path=xml_path,
+                                                               also_returning_precision_and_recall=True,
+                                                               printing=deep_printing)
+            precisions[i] = precision
+            recalls[i] = recall
+        else:
+            accuracy = predict_and_evaluate(test_file_name, threshold=threshold, window_size=window_size,
+                                            wav_path=wav_path, xml_path=xml_path, printing=deep_printing)
         accuracies[i] = accuracy
 
     average_accuracy = np.mean(accuracies)
+    if tracking_precision_and_recall:
+        average_precision = np.mean(precisions)
+        average_recall = np.mean(recalls)
+    else:
+        average_precision = None
+        average_recall = None
     if printing:
-        print(f'      accuracies: {accuracies}')
-        print(f'average accuracy: {average_accuracy:6.4f}')
-    return average_accuracy
+        if tracking_precision_and_recall:
+            print(f'       precisions: {precisions}')
+            print(f'average precision: {average_precision:6.4f}')
+            print(f'          recalls: {recalls}')
+            print(f'   average recall: {average_recall:6.4f}')
+        print(f'       accuracies: {accuracies}')
+        print(f' average accuracy: {average_accuracy:6.4f}')
+    if tracking_precision_and_recall:
+        return average_accuracy, average_precision, average_recall
+    else:
+        return average_accuracy
 
 
 def get_test_file_names(wav_path='test_files/test_wavs'):
@@ -130,32 +172,57 @@ def get_test_file_names(wav_path='test_files/test_wavs'):
     return test_file_names
 
 
-def brute_force_search_for_optimal_threshold_value(increment=0.01, start_threshold=0.0, printing=False):
+def brute_force_search_for_optimal_threshold_value(increment=0.01, start_threshold=0.0,
+                                                   tracking_precision_and_recall=False, printing=False):
     test_files = get_test_file_names()
     optimal_threshold_value_so_far = 0.0
     best_accuracy_so_far = 0.0
+    corresponding_precision = 0.0
+    corresponding_recall = 0.0
     threshold = start_threshold
     if printing:
-        print(f'\n             threshold   F-score\n             -------------------')
+        if tracking_precision_and_recall:
+            print(f'\n             threshold    F-score  precision  recall'
+                  f'\n             ---------------------------------------')
+        else:
+            print(f'\n             threshold    F-score'
+                  f'\n             --------------------')
     while threshold <= 1.0:
-        accuracy_for_this_threshold_value = evaluate_all(test_files, threshold=threshold)
+        if tracking_precision_and_recall:
+            accuracy_for_this_threshold_value, precision_for_this_threshold_value, recall_for_this_threshold_value = \
+                evaluate_all(test_files, threshold=threshold, tracking_precision_and_recall=True)
+        else:
+            precision_for_this_threshold_value = None
+            recall_for_this_threshold_value = None
+            accuracy_for_this_threshold_value = evaluate_all(test_files, threshold=threshold)
         if printing:
-            print(f'             {threshold:10.8f}: {accuracy_for_this_threshold_value:6.4f}')
+            if tracking_precision_and_recall:
+                print(f'             {threshold:10.8f}:  {accuracy_for_this_threshold_value:6.4f}    '
+                      f'{precision_for_this_threshold_value:6.4f}    {recall_for_this_threshold_value:6.4f}')
+            else:
+                print(f'             {threshold:10.8f}:  {accuracy_for_this_threshold_value:6.4f}')
         if accuracy_for_this_threshold_value > best_accuracy_so_far:
             optimal_threshold_value_so_far = threshold
             best_accuracy_so_far = accuracy_for_this_threshold_value
+            if tracking_precision_and_recall:
+                corresponding_precision = precision_for_this_threshold_value
+                corresponding_recall = recall_for_this_threshold_value
         threshold += increment
     if printing:
         print(f'\noptimal threshold value: {optimal_threshold_value_so_far}')
         print(f'          best accuracy: {best_accuracy_so_far:6.4f}')
+        if tracking_precision_and_recall:
+            print(f'corresponding precision: {corresponding_precision:6.4f}')
+            print(f'   corresponding recall: {corresponding_recall:6.4f}')
     return optimal_threshold_value_so_far
 
 
 def main():
-    predict_and_evaluate('Billie_Jean_Riff', threshold=0.2, printing=True)
+    # predict_and_evaluate('Billie_Jean_Riff', threshold=0.2, printing=True)
     # test_file_names = get_test_file_names()
     # evaluate_all(test_file_names, threshold=0.7, printing=True)
-    # brute_force_search_for_optimal_threshold_value(start_threshold=0.00, increment=0.05, printing=True)
+    brute_force_search_for_optimal_threshold_value(start_threshold=0.00, increment=0.05,
+                                                   tracking_precision_and_recall=True, printing=True)
 
 
 if __name__ == '__main__':
