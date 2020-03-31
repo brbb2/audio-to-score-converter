@@ -223,7 +223,7 @@ def infer_key_signature(predicted_notes, measure_quarter_length=4, bpm=120, prin
 
     # remove irrelevant information from 'predicted_notes': namely, timing data, octaves and rests
     predicted_pitches_of_notes = get_pitches_of_notes(predicted_notes)  # remove timing data
-    predicted_pitches_of_notes.remove('rest')  # remove rests
+    predicted_pitches_of_notes = list(filter(lambda x: x != 'rest', predicted_pitches_of_notes))  # remove all rests
     for i in range(len(predicted_pitches_of_notes)):  # remove the octave from the given name of each predicted note
         predicted_pitches_of_notes[i] = predicted_pitches_of_notes[i].translate({ord(k): None for k in digits})
 
@@ -421,26 +421,26 @@ def main():
     # wav_path = f'wav_files_simple'
     # xml_path = f'xml_files_simple'
 
-    file_name = 'Frere_Jacques'
+    file_name = 'Twinkle_Twinkle_Little_Star'
     wav_path = f'test_files/test_wavs'
     xml_path = f'test_files/test_xmls'
-    threshold = 0.6
+    threshold = 0.65
 
     predict(file_name, threshold=threshold, saving=True, printing=True, deep_printing=True)
 
     # graph plotting
-    pitch_probabilities_for_each_pitch, times = get_pitch_probabilities_for_each_pitch(file_name,
-                                                                                       wav_path=wav_path,
-                                                                                       returning_times=True,
-                                                                                       using_saved_maximum=True)
+    # pitch_probabilities_for_each_pitch, times = get_pitch_probabilities_for_each_pitch(file_name,
+    #                                                                                    wav_path=wav_path,
+    #                                                                                    returning_times=True,
+    #                                                                                    using_saved_maximum=True)
 
     # plot_pitch_probability_over_time(0, pitch_probabilities_for_each_window, showing=False)
     # plot_pitch_probability_over_time(49, pitch_probabilities_for_each_window, starting_new_figure=False)
     # plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch,
     #                                        file_name=f'{file_name}_using_saved_maximum', showing=False)
     # plot_all_pitch_probabilities_over_time(times_2, pitch_probabilities_for_each_pitch_2, file_name=file_name)
-    plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch, threshold=threshold,
-                                           file_name=file_name, showing=True)
+    # plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch, threshold=threshold,
+    #                                        file_name=file_name, showing=True)
 
 
 if __name__ == '__main__':
