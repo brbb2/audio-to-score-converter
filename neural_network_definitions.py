@@ -203,7 +203,7 @@ def get_model_new(x_train_shape, printing=False):
     return model
 
 
-def get_model_new_dropout(x_train_shape, dropout_rate=0.2, printing=False):
+def get_model_freq_dropout(x_train_shape, dropout_rate=0.2, printing=False):
 
     model = Sequential()
 
@@ -250,20 +250,21 @@ def get_model_midi(x_train_shape, printing=False):
     return model
 
 
-def get_model_midi_dropout(x_train_shape, dropout_rate=0, printing=False):
+def get_model_midi_dropout(x_train_shape, dropout_rate=0.2, printing=False):
 
     model = Sequential()
 
-    model.add(Conv1D(filters=8, kernel_size=4, input_shape=x_train_shape[1:], dropout_rate=dropout_rate))
+    model.add(Dropout(dropout_rate, input_shape=x_train_shape[1:]))
+    model.add(Conv1D(filters=8, kernel_size=4))
     model.add(MaxPool1D(pool_size=2))
 
+    model.add(Dropout(dropout_rate))
     model.add(Conv1D(filters=8, kernel_size=8))
     model.add(MaxPool1D(pool_size=2))
 
-    # model.add(Dropout(dropout_rate))
-
+    model.add(Dropout(dropout_rate))
     model.add(Flatten())
-    model.add(Dense(89, activation='softmax', dropout_rate=dropout_rate))
+    model.add(Dense(89, activation='softmax'))
 
     if printing:
         for layer in model.layers:
