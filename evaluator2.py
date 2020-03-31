@@ -1,4 +1,4 @@
-from predictor2 import *
+from predictor import *
 from os import listdir
 from os.path import isfile, splitext
 from ground_truth_converter import get_ground_truth_notes
