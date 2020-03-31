@@ -7,7 +7,6 @@ from encoder import get_bof_artificial_periodogram, get_eof_artificial_periodogr
 from encoder import BoF_LABEL_ENCODING, EoF_LABEL_ENCODING
 from neural_network_trainer import save_trained_model, load_model
 from data_processor import load_rnn_data_arrays, print_rnn_split_data
-from evaluator import create_comparison_text_file
 
 
 def load_rnn_model(name):
@@ -69,23 +68,29 @@ def set_up_sequence_to_sequence_model(encoder_inputs_train, decoder_inputs_train
     return encoder_model, decoder_model
 
 
-def decode_sequence(input_sequence, encoder_model, decoder_model, maximum_sequence_length):
+def decode_sequence(input_sequence, encoder_model, decoder_model, maximum_sequence_length, printing=False):
+
     assert len(input_sequence) <= maximum_sequence_length
+
+    # add a BoF periodogram to the front of the input and pad it with EoF periodograms at the end
     number_of_eofs_required = 1 + maximum_sequence_length - input_sequence.shape[0]
     bof = get_bof_artificial_periodogram(input_sequence.shape[1]).reshape((1, input_sequence.shape[1]))
     eof = get_eof_artificial_periodogram(input_sequence.shape[1]).reshape((1, input_sequence.shape[1]))
     eofs = np.repeat(eof, number_of_eofs_required, axis=0)
-    print(f' bof: {bof.shape}\n{bof}\n')
-    print(f'input: {input_sequence.shape}\n{input_sequence}\n')
-    print(f'eofs: {eofs.shape}\n{eofs}\n')
+
+    if printing:
+        print(f' bof: {bof.shape}\n{bof}\n')
+        print(f'input: {input_sequence.shape}\n{input_sequence}\n')
+        print(f'eofs: {eofs.shape}\n{eofs}\n')
+
     input_sequence = np.concatenate((bof, input_sequence, eofs), axis=0)
     input_sequence = input_sequence.reshape((1, input_sequence.shape[0], input_sequence.shape[1]))
-    print(f'input: {input_sequence.shape}\n{input_sequence}\n')
+
+    if printing:
+        print(f'input: {input_sequence.shape}\n{input_sequence}\n')
 
     # encode the input as state vectors
     states_value = encoder_model.predict(input_sequence)
-    # print(states_value)
-    # print()
 
     # initialise the current label to the beginning-of-file label
     current_label = BoF_LABEL_ENCODING
@@ -101,8 +106,14 @@ def decode_sequence(input_sequence, encoder_model, decoder_model, maximum_sequen
 
         # use the decoder to predict the next label in the sequence
         current_label_reshaped = np.full(shape=(1, 1, 1), fill_value=current_label)
-        print(f'current_label_reshaped: {current_label_reshaped.shape}\n{current_label_reshaped}\n')
+
+        if printing:
+            print(f'current_label_reshaped: {current_label_reshaped.shape}\n{current_label_reshaped}\n')
+
+        # use the current encoder state and the current label to predict the next label in the sequence
         next_label_probabilities, h, c = decoder_model.predict([current_label_reshaped] + states_value)
+
+        # infer the most likely next label from the softmax probabilities
         predicted_next_label = np.argmax(next_label_probabilities)
 
         # stop predicting notes if the end of the file has been reached
@@ -110,13 +121,59 @@ def decode_sequence(input_sequence, encoder_model, decoder_model, maximum_sequen
             break
         else:
             current_label = predicted_next_label
-            predicted_note = decode_label(predicted_next_label)
-            decoded_sequence.insert(0, predicted_note)
+            predicted_note = decode_label(predicted_next_label)  # get the note name from the label
+            decoded_sequence.insert(0, predicted_note)  # add the predicted note to the sequence
             states_value = [h, c]  # update the states
 
+    # turn the sequence from a list into an array and flip it to reverse the effect of inserting into the front
     decoded_sequence = np.array(decoded_sequence)[::-1]
 
     return decoded_sequence
+
+
+def make_prediction(encoder_inputs_val, decoder_inputs_val, sample, model_name='rnn_label_freq_50_powers',
+                    printing=True, saving=False):
+
+    encoder_model, decoder_model = load_rnn_model(model_name)
+
+    file_name = f'validation_sample_{sample}'
+
+    max_length = encoder_inputs_val.shape[1] - 2
+    ground_truth = decoder_inputs_val[sample][1:-1]
+    ground_truth = ground_truth.reshape(ground_truth.shape[0])
+    ground_truth = encode_ground_truth_array(ground_truth, current_encoding='label', desired_encoding=None)
+    ground_truth_list = list()
+
+    i = 0
+    while i < len(ground_truth) and ground_truth[i] != 'EoF':
+        ground_truth_list.insert(0, ground_truth[i])
+        i += 1
+    ground_truth = np.array(ground_truth_list)[::-1]
+
+    predicted_sequence = decode_sequence(encoder_inputs_val[sample][1:-1], encoder_model, decoder_model, max_length)
+
+    if printing:
+        print(f'predicted sequence: {predicted_sequence.shape}\n{predicted_sequence}\n')
+        print(f'ground truth: {ground_truth.shape}\n{ground_truth}\n')
+
+    if saving:
+        f = open(f'txt_files/{file_name}.txt', 'w')
+        f.write('        time step:   ')
+        for time_step in range(max(len(predicted_sequence), len(ground_truth))):
+            f.write(f'{time_step:<5}')
+        f.write('\n')
+        f.write('     ground truth:   ')
+        for pitch in ground_truth:
+            if pitch == 'EoF':
+                break
+            f.write(f'{pitch:<5}')
+        f.write('\n')
+        f.write('model predictions:   ')
+        for pitch in predicted_sequence:
+            f.write(f'{pitch:<5}')
+        f.close()
+
+    return predicted_sequence
 
 
 def main():
@@ -132,46 +189,12 @@ def main():
     #     #     print(periodogram)
     #     print(file[60])
     #     print()
+
     # set_up_sequence_to_sequence_model(encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,
     #                                   encoder_inputs_val, decoder_inputs_val, decoder_outputs_val,
     #                                   saving=True, save_name='rnn_label_freq_50_powers')
 
-    encoder_model, decoder_model = load_rnn_model('rnn_label_freq_50_powers')
-
-    sample = 54
-    file_name = f'validation_sample_{sample}'
-
-    max_length = encoder_inputs_val.shape[1] - 2
-    ground_truth = decoder_inputs_val[sample][1:-1]
-    ground_truth = ground_truth.reshape(ground_truth.shape[0])
-    ground_truth = encode_ground_truth_array(ground_truth, current_encoding='label', desired_encoding=None)
-    ground_truth_list = list()
-    i = 0
-    while i < len(ground_truth) and ground_truth[i] != 'EoF':
-        ground_truth_list.insert(0, ground_truth[i])
-        i += 1
-    ground_truth = np.array(ground_truth_list)[::-1]
-
-    predicted_sequence = decode_sequence(encoder_inputs_val[sample][1:-1], encoder_model, decoder_model, max_length)
-
-    print(f'predicted sequence: {predicted_sequence.shape}\n{predicted_sequence}\n')
-    print(f'ground truth: {ground_truth.shape}\n{ground_truth}\n')
-
-    f = open(f'txt_files/{file_name}.txt', 'w')
-    f.write('        time step:   ')
-    for time_step in range(max(len(predicted_sequence), len(ground_truth))):
-        f.write(f'{time_step:<5}')
-    f.write('\n')
-    f.write('     ground truth:   ')
-    for pitch in ground_truth:
-        if pitch == 'EoF':
-            break
-        f.write(f'{pitch:<5}')
-    f.write('\n')
-    f.write('model predictions:   ')
-    for pitch in predicted_sequence:
-        f.write(f'{pitch:<5}')
-    f.close()
+    make_prediction(encoder_inputs_val, decoder_inputs_val, sample=40, saving=False)
 
 
 if __name__ == '__main__':
