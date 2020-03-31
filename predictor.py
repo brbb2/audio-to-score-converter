@@ -1,15 +1,15 @@
-from encoder import label_encode_midi_pitch, decode_midi_pitch, decode_label, get_pitch_array
-from data_processor import add_spectral_powers, normalise
-from neural_network_trainer import load_model
-from audio_processor import get_spectrogram
-from music21 import *
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+from music21 import *
 from string import digits
-from encoder import pitch_offsets, pitch_offset_names, key_signature_notes, key_signature_encodings
-from encoder import get_relative_major, get_relative_minor
+from audio_processor import get_spectrogram
+from neural_network_trainer import load_model
 from ground_truth_converter import get_ground_truth_notes
+from data_processor import add_spectral_powers, normalise
+from encoder import get_relative_major, get_relative_minor
 from audio_processor import get_precise_window_duration_in_seconds
+from encoder import label_encode_midi_pitch, decode_midi_pitch, decode_label, get_pitch_array
+from encoder import pitch_offsets, pitch_offset_names, key_signature_notes, key_signature_encodings
 
 
 def get_pitch_probabilities_for_each_window(file_name, wav_path='wav_files_simple', window_size=25,
@@ -90,8 +90,8 @@ def get_most_likely_pitch_for_each_window(file_name, wav_path='wav_files_simple'
         return most_likely_pitch_for_each_window
 
 
-def sweep_old(most_likely_pitch_for_each_window, threshold=0.9, window_size=25, quantising=False, quantise_degree=0.25,
-          printing=False):
+def sweep_old(most_likely_pitch_for_each_window, threshold=0.65, window_size=25, quantising=False, quantise_degree=0.25,
+              printing=False):
 
     window_duration = get_precise_window_duration_in_seconds(window_size)
 
@@ -187,22 +187,33 @@ def sweep_old(most_likely_pitch_for_each_window, threshold=0.9, window_size=25, 
 
 
 def sweep(pitch_probabilities_for_each_pitch, threshold, window_size=25, printing=False):
+
+    # get the actual window duration from the approximate window size
     window_duration = get_precise_window_duration_in_seconds(window_size)
+
+    # for each pitch, add a zero to both the start and the end of its probability array
     pitch_probabilities_for_each_pitch_modified = np.zeros(shape=(pitch_probabilities_for_each_pitch.shape[0],
                                                                   pitch_probabilities_for_each_pitch.shape[1] + 2))
     pitch_probabilities_for_each_pitch_modified[:, 1:-1] = pitch_probabilities_for_each_pitch
+
+    # initialise and empty list for the detected notes
     notes_detected = list()
+    # for each pitch, determine where and in what direction its activation function crosses the threshold
     for midi_pitch_label in range(len(pitch_probabilities_for_each_pitch)):
         note_onset = 0.0
         probability_of_pitch_over_time = pitch_probabilities_for_each_pitch_modified[midi_pitch_label]
         for i in range(pitch_probabilities_for_each_pitch.shape[1] + 1):
+            # if the activation function crosses the threshold while increasing, a note onset has been found
             if probability_of_pitch_over_time[i] < threshold < probability_of_pitch_over_time[i + 1]:
                 note_onset = quantise(i * window_duration)
+            # if the activation function crosses the threshold while decreasing, a note offset has been found
             elif probability_of_pitch_over_time[i + 1] < threshold < probability_of_pitch_over_time[i]:
                 note_offset = quantise(i * window_duration)
                 note_name = decode_label(midi_pitch_label)
                 if note_onset < note_offset:
                     notes_detected.insert(0, (note_name, note_onset, note_offset))
+
+    # sort the notes by onset time
     notes_detected = sorted(notes_detected, key=lambda x: x[1])
 
     if printing:
@@ -316,9 +327,15 @@ def infer_key_signature(predicted_notes, measure_quarter_length=4, bpm=120, prin
 
 def create_predicted_score(predicted_notes, save_name='test', bpm=120, save_path='test_files/test_outputs',
                            deep_printing=False, saving=True):
+
+    # guess the most likely key signature from the notes present in the prediction
     predicted_key_signature = infer_key_signature(predicted_notes, printing=deep_printing)
+
+    # initialise a music21 stream of the predicted key signature
     s = stream.Stream()
     s.append(key.KeySignature(predicted_key_signature))
+
+    # for each note, calculate its quarterLength and append it to the stream
     for predicted_note in predicted_notes:
         quarter_length = (predicted_note[2] - predicted_note[1]) * bpm / 60.0
         if predicted_note[0] == 'rest':
@@ -327,6 +344,7 @@ def create_predicted_score(predicted_notes, save_name='test', bpm=120, save_path
             n = note.Note(nameWithOctave=predicted_note[0], quarterLength=quarter_length)
         s.append(n)
 
+    # if saving, save the music21 stream as a musicXML file
     if saving:
         if save_path is None:
             output_file_full_path = f'{save_name}.musicxml'
@@ -415,6 +433,15 @@ def predict(file_name, threshold, wav_path='test_files/test_wavs', xml_path='tes
     return predicted_notes
 
 
+def plot_file_prediction(file_name, threshold=0.65, wav_path='test_files/test_wavs', showing=True):
+    pitch_probabilities_for_each_pitch, times = get_pitch_probabilities_for_each_pitch(file_name,
+                                                                                       wav_path=wav_path,
+                                                                                       returning_times=True,
+                                                                                       using_saved_maximum=True)
+    plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch, threshold=threshold,
+                                           file_name=file_name, showing=showing)
+
+
 def main():
 
     # file_name = f'single_G7_0'
@@ -426,21 +453,9 @@ def main():
     xml_path = f'test_files/test_xmls'
     threshold = 0.65
 
+    # plot_file_prediction(file_name)
+
     predict(file_name, threshold=threshold, saving=True, printing=True, deep_printing=True)
-
-    # graph plotting
-    # pitch_probabilities_for_each_pitch, times = get_pitch_probabilities_for_each_pitch(file_name,
-    #                                                                                    wav_path=wav_path,
-    #                                                                                    returning_times=True,
-    #                                                                                    using_saved_maximum=True)
-
-    # plot_pitch_probability_over_time(0, pitch_probabilities_for_each_window, showing=False)
-    # plot_pitch_probability_over_time(49, pitch_probabilities_for_each_window, starting_new_figure=False)
-    # plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch,
-    #                                        file_name=f'{file_name}_using_saved_maximum', showing=False)
-    # plot_all_pitch_probabilities_over_time(times_2, pitch_probabilities_for_each_pitch_2, file_name=file_name)
-    # plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch, threshold=threshold,
-    #                                        file_name=file_name, showing=True)
 
 
 if __name__ == '__main__':
