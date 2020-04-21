@@ -91,7 +91,7 @@ def print_spectrogram_data(frequencies, times, spectrogram):
           f'mid-point times: {times.shape}\n{times}')
 
 
-def get_spectrogram_scipy(wav_file, window_size=50, using_midi_bins=False, window_type='hamming', printing=False):
+def get_spectrogram_scipy(wav_file, window_size=25, using_midi_bins=False, window_type='hamming', printing=False):
 
     # get the corresponding parameters for the specified window size
     nperseg, noverlap = get_window_parameters(window_size)
@@ -113,7 +113,7 @@ def get_spectrogram_scipy(wav_file, window_size=50, using_midi_bins=False, windo
     return frequencies, times, spectrogram
 
 
-def get_spectrogram_pyplot(wav_file, window_size=50, plotting_seconds_on_the_x_axis=True, printing=False):
+def get_spectrogram_pyplot(wav_file, window_size=25, plotting_seconds_on_the_x_axis=True, printing=False):
 
     # get the corresponding parameters for the specified window size
     nperseg, noverlap = get_window_parameters(window_size)
@@ -132,7 +132,7 @@ def get_spectrogram_pyplot(wav_file, window_size=50, plotting_seconds_on_the_x_a
     return frequencies, times, spectrogram
 
 
-def get_spectrogram(wav_file, window_size=50, strategy='scipy', window_type='hamming',
+def get_spectrogram(wav_file, window_size=25, strategy='scipy', window_type='hamming',
                     printing=False, using_midi_bins=False, plotting_seconds_on_the_x_axis=True):
     
     frequencies = None
@@ -152,7 +152,7 @@ def get_spectrogram(wav_file, window_size=50, strategy='scipy', window_type='ham
     return frequencies, times, spectrogram
 
 
-def plot_spectrogram_scipy(wav_file, window_size=50, window_type='hamming',
+def plot_spectrogram_scipy(wav_file, window_size=25, window_type='hamming',
                            plotting_logged=False, returning_logged=False, using_midi_bins=False,
                            plotting_seconds_on_x_axis=True, y_max=None, showing=True, printing=False):
 
@@ -192,7 +192,7 @@ def plot_spectrogram_scipy(wav_file, window_size=50, window_type='hamming',
     return frequencies, times, spectrogram
 
 
-def plot_spectrogram_pyplot(wav_file, window_size=50, plotting_seconds_on_the_x_axis=True, y_max=None, showing=True):
+def plot_spectrogram_pyplot(wav_file, window_size=25, plotting_seconds_on_the_x_axis=True, y_max=None, showing=True):
 
     # get the corresponding parameters for the specified window size
     nperseg, noverlap = get_window_parameters(window_size)
@@ -220,7 +220,7 @@ def plot_spectrogram_pyplot(wav_file, window_size=50, plotting_seconds_on_the_x_
     return frequencies, times, spectrogram
 
 
-def plot_spectrogram(wav_file, window_size=50, strategy='pyplot', window_type='hamming',
+def plot_spectrogram(wav_file, window_size=25, strategy='pyplot', window_type='hamming',
                      plotting_logged=True, returning_logged=False, using_midi_bins=False,
                      plotting_seconds_on_x_axis=True, y_max=None, showing=True, printing=False):
 
@@ -235,7 +235,7 @@ def plot_spectrogram(wav_file, window_size=50, strategy='pyplot', window_type='h
         plot_spectrogram_pyplot(wav_file, window_size=window_size, y_max=y_max, showing=showing)
 
 
-def get_periodograms(wav_file, window_size=50, strategy='scipy'):
+def get_periodograms(wav_file, window_size=25, strategy='scipy'):
     spectrogram = None
     if strategy == 'scipy':
         _, _, spectrogram = get_spectrogram_scipy(wav_file, window_size=window_size)
