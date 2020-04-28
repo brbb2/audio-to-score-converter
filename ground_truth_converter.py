@@ -1,7 +1,6 @@
 import numpy as np
 from music21 import *
 from audio_processor import get_spectrogram
-from encoder import REST_MIDI_ENCODING, one_hot_encode_midi_pitch
 
 
 def print_note(event, as_tuple=True):
@@ -22,62 +21,27 @@ def print_note(event, as_tuple=True):
             print(f'{onset:8.3f}  rest')
 
 
-def get_encoded_pitch(element, encoding='one_hot'):
-    encoded_pitch = None
-    if type(element) is note.Note:
-        if encoding == 'one_hot':
-            encoded_pitch = one_hot_encode_midi_pitch(element.pitch.midi)
-        elif encoding == 'midi_pitch':
-            encoded_pitch = element.pitch.midi
-        else:
-            encoded_pitch = str(element.pitch)
-    elif type(element) is note.Rest:
-        if encoding == 'one_hot':
-            encoded_pitch = one_hot_encode_midi_pitch(REST_MIDI_ENCODING)
-        elif encoding == 'midi_pitch':
-            encoded_pitch = REST_MIDI_ENCODING
-        else:
-            encoded_pitch = 'rest'
-    return encoded_pitch
-
-
-def get_notes_old(score, printing=False, encoding=None):
-    notes = list()
-    for part in score.parts:
-        for measure in part.getElementsByClass("Measure"):
-            seconds_map = measure.secondsMap
-            if printing:
-                print(f'\n-- new measure --  {seconds_map}')
-            for i in seconds_map:
-                element = i.get('element')
-                if type(element) == note.Note or type(element) == note.Rest:
-                    encoded_pitch = get_encoded_pitch(element, encoding=encoding)
-                    offset_seconds = i.get('offsetSeconds')
-                    duration_seconds = i.get('durationSeconds')
-                    notes.append((encoded_pitch, element.offset, element.duration.quarterLength,
-                                  offset_seconds, duration_seconds))
-
-                    if printing:
-                        print(f'note: {str(encoded_pitch):<4}    '
-                              f'offset: {float(element.offset):7.4f} beats ({float(offset_seconds):7.4f} s)    '
-                              f'duration: {float(element.duration.quarterLength):7.4f} beats ('
-                              f'{float(duration_seconds):7.4f} s)')
-
-    return notes
-
-
-def get_notes_from_xml_file(xml_file_full_path, ground_truth_duration, printing=False):
+def get_notes_from_xml_file(xml_file_full_path, ground_truth_duration, printing=False, deep_printing=False):
     notes = list()
     score = converter.parse(xml_file_full_path)
     last_offset_time = 0.0
     for part in score.parts:
+        if deep_printing:
+            measure_number = 1
         for i in range(len(part)):
             if type(part.secondsMap[i]['element']) is stream.Measure:
                 measure = part.secondsMap[i]['element']
-                measure_offset_seconds = part.secondsMap[i]['offsetSeconds']
+                measure_offset_seconds = part.secondsMap[i]['offsetSeconds']  # get the start time of this measure
+                if deep_printing:
+                    print(f'MEASURE {measure_number}')
+                    measure_number += 1
                 for item in measure.secondsMap:
+                    if deep_printing:
+                        print(item)
                     element = item['element']
                     n = None
+                    # measure.secondsMap gives timing offsets from the start of that measure,
+                    # so add the measure's start time to get this item's onset time
                     onset_time = measure_offset_seconds + item['offsetSeconds']
                     offset_time = onset_time + item['durationSeconds']
 
@@ -93,7 +57,7 @@ def get_notes_from_xml_file(xml_file_full_path, ground_truth_duration, printing=
                         # if there are two rests in a row, replace the previous rest with a longer rest
                         if len(notes) > 0 and notes[0][0] == 'rest' and n[0] == 'rest':
                             notes[0] = ('rest', notes[0][1], n[2])
-                        # if the current not is tied to the previous note, replace the previous note with a longer note
+                        # if the current note is tied to the previous note, replace the previous note with a longer note
                         elif type(element) is note.Note and element.tie is not None and \
                                 (element.tie.type == 'stop' or element.tie.type == 'continue'):
                             notes[0] = (notes[0][0], notes[0][1], n[2])
@@ -103,7 +67,7 @@ def get_notes_from_xml_file(xml_file_full_path, ground_truth_duration, printing=
     if last_offset_time < ground_truth_duration:
         notes.insert(0, ('rest', last_offset_time, ground_truth_duration))
 
-    notes.reverse()
+    notes = sorted(notes, key=lambda x: x[1])
 
     if printing:
         print(notes)
@@ -116,47 +80,6 @@ def get_ground_truth_notes(file_name, window_size, wav_path='wav_files', xml_pat
     ground_truth_duration = len(times) * window_size / 1000.0
     notes = get_notes_from_xml_file(f'{xml_path}/{file_name}.musicxml', ground_truth_duration)
     return notes
-
-
-def get_monophonic_periodogram_pitch_old(times, notes, encoding=None):
-
-    # initialise ground-truth array with rests
-    if encoding == 'one_hot':
-        ground_truth = np.full(len(times), one_hot_encode_midi_pitch(REST_MIDI_ENCODING), dtype=object)
-    elif encoding == 'midi_pitch':
-        ground_truth = np.full(len(times), REST_MIDI_ENCODING, dtype=object)
-    else:
-        ground_truth = np.full(len(times), 'rest', dtype=object)
-
-    # for each window, determine whether a non-rest note is sounding at that time
-    # for i in range(len(times)):
-    #     for n in notes:
-    #         note_onset = n[3]
-    #         note_offset = n[3] + n[4]
-    #         if note_onset < times[i] < note_offset:
-    #             ground_truth[i] = n[0]
-
-    note_index = 0
-    note_onset = notes[note_index][3]
-    note_offset = notes[note_index][3] + notes[note_index][4]
-    i = 0
-    while i < len(times):
-        # if the note currently under examination is sounding at times[i],
-        if note_onset < times[i] < note_offset:
-            # then add its pitch to the ground truth for time-step i, and proceed to the next time-step
-            ground_truth[i] = notes[note_index][0]
-            i += 1
-        # otherwise, if the note currently under examination has already finished sounding,
-        elif note_offset < times[i]:
-            # stay at the same time-step, but move on to examine the next note in the sequence
-            note_index += 1
-            if note_index < len(notes):
-                note_onset = notes[note_index][3]
-                note_offset = notes[note_index][3] + notes[note_index][4]
-            else:
-                break
-
-    return ground_truth
 
 
 def get_pitches_for_each_window(times, notes, monophonic=True):
@@ -173,8 +96,10 @@ def get_pitches_for_each_window(times, notes, monophonic=True):
             if note_onset_time < window_mid_point_time < note_offset_time:
                 notes_present_in_window.insert(0, note_or_rest[0])
         notes_present_in_window.reverse()
+        # print(notes_present_in_window)
+        assert len(notes_present_in_window) > 0
         if monophonic:
-            assert len(notes_present_in_window) == 1
+            # assert len(notes_present_in_window) == 1
             ground_truth_array[i] = notes_present_in_window[0]
         else:
             ground_truth_array[i] = notes_present_in_window
@@ -182,19 +107,8 @@ def get_pitches_for_each_window(times, notes, monophonic=True):
     return ground_truth_array
 
 
-def get_monophonic_ground_truth_old(wav, xml, encoding=None, window_size=50, printing=False):
-    _, times, _ = get_spectrogram(wav, window_size=window_size)
-    score = converter.parse(xml)
-    notes = get_notes_old(score, encoding=encoding)
-    ground_truth = get_monophonic_periodogram_pitch_old(times, notes, encoding)
-    if printing:
-        print(f'notes:\n{notes}\n\n'
-              f'mid-point times: {times.shape} {type(times)}\n{times}\n\n'
-              f'ground truth: {ground_truth.shape} {type(ground_truth)}\n{ground_truth}')
-    return ground_truth
-
-
-def get_monophonic_ground_truth(file_name, window_size=50, wav_path='wav_files', xml_path='xml_files', printing=False):
+def get_monophonic_ground_truth(file_name, window_size=25, wav_path='wav_files', xml_path='xml_files',
+                                printing=False, deep_printing=False):
 
     # get the mid-point time of each window from the spectrogram of the wav file
     if wav_path is None:
@@ -206,9 +120,10 @@ def get_monophonic_ground_truth(file_name, window_size=50, wav_path='wav_files',
 
     # get the notes from the musicXML file
     if xml_path is None:
-        notes = get_notes_from_xml_file(f'{file_name}.musicxml', ground_truth_duration)
+        notes = get_notes_from_xml_file(f'{file_name}.musicxml', ground_truth_duration, printing=deep_printing)
     else:
-        notes = get_notes_from_xml_file(f'{xml_path}/{file_name}.musicxml', ground_truth_duration)
+        notes = get_notes_from_xml_file(f'{xml_path}/{file_name}.musicxml', ground_truth_duration,
+                                        printing=deep_printing)
 
     # see which pitch (or rest) is present in each window
     ground_truth = get_pitches_for_each_window(times, notes)
