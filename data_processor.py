@@ -5,7 +5,7 @@ from os import listdir
 from keras.utils import normalize
 from os.path import isfile, splitext
 from sklearn.model_selection import StratifiedShuffleSplit
-from audio_processor import get_window_parameters, get_spectrogram
+from audio_processor import get_spectrogram
 from ground_truth_converter import get_monophonic_ground_truth
 from encoder import encode_ground_truth_array, get_bof_artificial_periodogram, get_eof_artificial_periodogram
 from encoder import BoF_LABEL_ENCODING
@@ -288,8 +288,6 @@ def normalise(x, strategy='k1', taking_logs=True, using_midi_bins=False,
               spectral_powers_present=True, taking_spectral_powers_logs=True, spectral_powers_strategy='max',
               first_order_differences_present=True, using_saved_maximum=False,
               printing=False):
-
-    shape = x.shape
 
     if using_midi_bins:
         x += np.nextafter(0.0, 1.0)
