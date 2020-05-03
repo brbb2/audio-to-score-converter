@@ -1,8 +1,12 @@
-from music21 import *
-import random
 import os
+import random
+from music21 import *
 from encoder import pitch_offset_names as pitch_values
-from midi_to_wav_converter import make_all_wavs
+
+
+PATH_TIMIDITY = '/usr/local/bin'
+PATH_MID = 'midi_files'
+PATH_WAV = 'wav_files'
 
 
 def print_note_info(input_note):
@@ -75,6 +79,25 @@ def generate_midi_single_notes(samples=10, start=0, octaves=9, pitches=12, print
                     print(f'{filename}.mid')
 
 
+def run_timidity(file_name):
+    file_name, _ = os.path.splitext(file_name)
+    command = '{}/timidity {}/{}.mid -Ow --preserve-silence -o {}/{}.wav'\
+        .format(PATH_TIMIDITY, PATH_MID, file_name, PATH_WAV, file_name)
+    os.system(command)  # use the API "Timidity++" to convert a MIDI file into a WAV file
+
+
+def make_all_wavs(skipping_rest_files=False):
+    if skipping_rest_files:
+        for file_name in os.listdir(PATH_MID):
+            if 'rest' in file_name:
+                continue
+            else:
+                run_timidity(file_name)  # use the API "Timidity++" to convert the MIDI file into a WAV file
+    else:
+        for file_name in os.listdir(PATH_MID):
+            run_timidity(file_name)  # use the API "Timidity++" to convert the MIDI file into a WAV file
+
+
 def generate_wav_files_from_all_midi_files():
     make_all_wavs()
 
@@ -88,16 +111,6 @@ def generate_xml_files_from_all_midi_files(midi_directory='midi_files', xml_dire
 
 
 def main():
-    # print(f'scratch-xml-files/{pitch_values[s[1].pitch.pitchClass]}{s[1].octave}.xml')
-    # print(pitch_values[6])
-    # example()
-    # generate_wav(s, 'midi_files/demo', 'soundfonts/FluidR3_GM.sf2')
-    # generate_midi_single_notes(samples=10, start=0, printing=True)
-    # generate_midi_rests()
-    # example_note('C8')
-    # get_xml_from_midi()
-    # generate_midi_rests(samples=1)
-    generate_xml_files_from_all_midi_files(midi_directory='midi_files_simple', xml_directory='xml_files_simple')
     pass
 
 
