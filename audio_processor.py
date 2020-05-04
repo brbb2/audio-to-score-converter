@@ -248,7 +248,7 @@ def get_periodograms(wav_file, window_size=25, strategy='scipy'):
 def merge_frequency_bins_into_midi_bins(spectrogram, frequencies, printing=False):
 
     # initialise the first frequency bound to the geometric mid-point of A0 and B-0
-    frequency_bound = 440 * 2 ** (-95 / 24.0)
+    frequency_bound = 27.5 * 2 ** (1 / 24.0)
 
     midi_spectrogram = np.full((88, spectrogram.shape[1]), 0.0)
 
