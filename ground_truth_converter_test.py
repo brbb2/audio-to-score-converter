@@ -1,10 +1,9 @@
-import ground_truth_converter
+import numpy as np
+from math import ceil
 from music21 import converter, note, stream
-from ground_truth_converter import get_monophonic_ground_truth, get_notes_from_xml_file, get_pitches_for_each_window
 from audio_processor import plot_spectrogram, get_window_parameters
 from neural_network_trainer import get_data_dictionary, balance_dictionary
-from math import ceil
-import numpy as np
+from ground_truth_converter import get_monophonic_ground_truth, get_notes_from_xml_file
 
 
 def run_test_case(test_note='A4', example=0):
@@ -28,7 +27,7 @@ def test_missing_files():
     for absent_file in absent_files:
         print(f'{absent_file}.musicxml:')
         score = converter.parse(f'xml_files/{absent_file}.musicxml')
-        ground_truth_converter.get_notes(score, encoding=None, printing=True)
+        get_notes_from_xml_file(score, printing=True)
         print('\n\n')
 
 
@@ -54,7 +53,7 @@ def get_single_note_onset_and_offset(ground_truth_array, window_size=50, printin
 
 def test_get_notes(note_name, example, wav_path='wav_files', xml_path='xml_files', showing_plot=False):
     score = converter.parse(f'{xml_path}/single_{note_name}_{example}.musicxml')
-    ground_truth_converter.get_notes(score, encoding=None, printing=True)
+    get_notes_from_xml_file(score, printing=True)
     if showing_plot:
         plot_spectrogram(f'{wav_path}/single_{note}_{example}.wav')
 
@@ -153,8 +152,6 @@ def test_get_monophonic_ground_truth_against_known_ground_truth(window_size=50, 
 
 
 def main():
-    # test_missing_files()
-    # test_get_notes('A4', 3, wav_path='wav_files_simple', xml_path='xml_files_simple')
     test_get_monophonic_ground_truth_against_known_ground_truth()
 
 
