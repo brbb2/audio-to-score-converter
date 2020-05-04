@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from keras.utils import normalize
-from scipy.interpolate import interp1d
 from data_processor import add_spectral_powers, normalise
 from audio_processor import get_spectrogram, plot_spectrogram
 from ground_truth_converter import get_monophonic_ground_truth
@@ -10,7 +9,7 @@ from encoder import interpret_one_hot, get_one_hot_midi_pitch_index, get_note_na
 
 
 def predict_each_window_of_wav_file(file_name, wav_path='wav_files', adding_spectral_powers=True, normalising=True,
-                                    window_size=50, model_name=None):
+                                    window_size=25, model_name=None, printing=False):
 
     if wav_path is None:
         wav_file_full_path = f'{file_name}.wav'
@@ -34,6 +33,12 @@ def predict_each_window_of_wav_file(file_name, wav_path='wav_files', adding_spec
     predictions = np.empty(len(probabilities), dtype=object)
     for i in range(len(probabilities)):
         predictions[i] = interpret_one_hot(probabilities[i], encoding=None)
+
+    if printing:
+        print(predictions.shape)
+        print(predictions)
+
+    return predictions
 
 
 def create_comparison_text_file(file_name, model_name, window_size=50, wav_path='wav_files', xml_path='xml_files',
@@ -95,7 +100,7 @@ def create_comparison_text_file(file_name, model_name, window_size=50, wav_path=
         print(ground_truth)
 
 
-def create_all_comparison_text_files(model_name, window_size=50, printing=True, deep_printing=False):
+def create_all_comparison_text_files(model_name, window_size=25, printing=True, deep_printing=False):
     data_file_names = get_data_file_names()
     for data_file_name in data_file_names:
         create_comparison_text_file(data_file_name, model_name, window_size=window_size,
@@ -115,14 +120,12 @@ def get_maxima_times(single_frequency_spectrum, times, threshold, printing=False
     maxima_times = list()
     i = 0
     while i < len(single_frequency_spectrum):
-        # print(f'{i: >3}: {spectrum[i]}')
         if single_frequency_spectrum[i] >= threshold:
             peak = list()
             start_index = i
             while i < len(single_frequency_spectrum) and single_frequency_spectrum[i] >= threshold:
                 peak.append(single_frequency_spectrum[i])
                 i = i + 1
-            # print(np.array(peak))
             peaks.append((start_index, np.array(peak)))
         i = i + 1
     for (start_index, peak) in peaks:
@@ -134,13 +137,6 @@ def get_maxima_times(single_frequency_spectrum, times, threshold, printing=False
         print()
         print(maxima_times)
     return np.array(maxima_times)
-
-
-def plot_smoothed(t, spectrogram):
-    f = interp1d(t, spectrogram)
-    x_new = np.linspace(0, 2.5, num=100, endpoint=True)
-    f2 = interp1d(t, spectrogram, kind='cubic')
-    plt.plot(x_new, f(x_new), '-', x_new, f2(x_new), '--')
 
 
 def plot_wav_prediction(note, example, model_name, method='scipy', printing=False,
@@ -299,18 +295,10 @@ def plot_pitch_accuracies(data_version, model_name, title=None, alpha=1,
 
 
 def main():
-    # plot_pitch_accuracies('debugged', 'label_freq_050ms_remove_rests_10_powers_log_k1_norm_dense_debugged',
-    #                       alpha=0.5, showing=True, plotting_new_figure=True)
     plot_pitch_accuracies('label_freq_025ms_with_powers_remove_rests_normalised',
                           'label_freq_025ms_with_powers_remove_rests_log_k1_normalised_using_dropout_midi_model',
                           title=f'Prediction accuracy for each MIDI pitch\nwith best model',
                           alpha=0.5, showing=True, plotting_new_figure=True)
-    # note_name = 'G4'
-    # example = 3
-    # create_comparison_text_file(f'single_{note_name}_{example}',
-    #                             'label_freq_050ms_remove_rests_10_powers_log_k1_norm_dense_debugged',
-    #                             wav_path='wav_files_simple', xml_path='xml_files_simple',
-    #                             save_name=f'single_{note_name}_{example}_debugged')
 
 
 if __name__ == "__main__":
