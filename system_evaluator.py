@@ -87,7 +87,7 @@ def predict_and_evaluate(file_name, threshold, wav_path='test_files/test_wavs', 
     ground_truth_notes = get_ground_truth_notes(file_name, wav_path=wav_path, xml_path=xml_path,
                                                 window_size=window_size)
 
-    predicted_notes = predict(file_name, threshold=threshold, saving=False)
+    predicted_notes = predict(file_name, threshold=threshold, wav_path=wav_path, saving=False)
 
     if also_returning_precision_and_recall:
         precision = get_precision(ground_truth_notes, predicted_notes, printing=printing)
@@ -173,6 +173,7 @@ def get_test_file_names(wav_path='test_files/test_wavs'):
 
 
 def brute_force_search_for_optimal_threshold_value(increment=0.01, start_threshold=0.0,
+                                                   wav_path='test_files/test_wavs', xml_path='test_files/test_xmls',
                                                    tracking_precision_and_recall=False, printing=False):
     test_files = get_test_file_names()
     optimal_threshold_value_so_far = 0.0
@@ -190,11 +191,12 @@ def brute_force_search_for_optimal_threshold_value(increment=0.01, start_thresho
     while threshold <= 1.0:
         if tracking_precision_and_recall:
             accuracy_for_this_threshold_value, precision_for_this_threshold_value, recall_for_this_threshold_value = \
-                evaluate_all(test_files, threshold=threshold, tracking_precision_and_recall=True)
+                evaluate_all(test_files, threshold=threshold, tracking_precision_and_recall=True,
+                             wav_path=wav_path, xml_path=xml_path)
         else:
             precision_for_this_threshold_value = None
             recall_for_this_threshold_value = None
-            accuracy_for_this_threshold_value = evaluate_all(test_files, threshold=threshold)
+            accuracy_for_this_threshold_value = evaluate_all(test_files, threshold=threshold, wav_path=wav_path)
         if printing:
             if tracking_precision_and_recall:
                 print(f'             {threshold:10.8f}:  {accuracy_for_this_threshold_value:6.4f}    '
@@ -218,11 +220,8 @@ def brute_force_search_for_optimal_threshold_value(increment=0.01, start_thresho
 
 
 def main():
-    # predict_and_evaluate('Billie_Jean_Riff', threshold=0.2, printing=True)
-    # test_file_names = get_test_file_names()
-    # evaluate_all(test_file_names, threshold=0.7, printing=True)
-    brute_force_search_for_optimal_threshold_value(start_threshold=0.00, increment=0.05,
-                                                   tracking_precision_and_recall=True, printing=True)
+    test_file_names = get_test_file_names()
+    evaluate_all(test_file_names, threshold=0.65, wav_path='test_files/test_wavs', printing=True)
 
 
 if __name__ == '__main__':
