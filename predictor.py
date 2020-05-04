@@ -2,12 +2,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from music21 import *
 from string import digits
-from audio_processor import get_spectrogram
 from neural_network_trainer import load_model
 from ground_truth_converter import get_ground_truth_notes
 from data_processor import add_spectral_powers, normalise
 from encoder import get_relative_major, get_relative_minor
-from audio_processor import get_precise_window_duration_in_seconds
+from audio_processor import get_spectrogram, get_precise_window_duration_in_seconds
 from encoder import label_encode_midi_pitch, decode_midi_pitch, decode_label, get_pitch_array
 from encoder import pitch_offsets, pitch_offset_names, key_signature_notes, key_signature_encodings
 
@@ -131,7 +130,7 @@ def get_pitches_of_notes(notes):
     return pitches_of_notes
 
 
-def infer_key_signature(predicted_notes, measure_quarter_length=4, bpm=120, printing=False):
+def infer_key_signature(predicted_notes, pick_up_quarter_length=0, bpm=120, printing=False):
 
     # remove irrelevant information from 'predicted_notes': namely, timing data, octaves and rests
     predicted_pitches_of_notes = get_pitches_of_notes(predicted_notes)  # remove timing data
@@ -179,19 +178,27 @@ def infer_key_signature(predicted_notes, measure_quarter_length=4, bpm=120, prin
         best_minor_key_signatures.insert(0, relative_minor_key)
     best_minor_key_signatures.reverse()
 
+    # use the assumption that the first note is the tonic to choose a key from the possible candidates
     pitch_of_first_note = None
-    duration_of_each_measure = measure_quarter_length * 60 / float(bpm)
+    time_of_first_downbeat = pick_up_quarter_length * 60 / float(bpm)
     i = 0
     while i < len(predicted_pitches_of_notes):
-        if predicted_notes[i][0] != 'rest' and abs((predicted_notes[i][1] / duration_of_each_measure) % 1) < 0.01:
-            pitch_of_first_note = predicted_pitches_of_notes[0]
-            break
+        # only consider notes, not rests
+        if predicted_pitches_of_notes[i] != 'rest':
+            # remember the first event that is not a rest in case there is no note on the first downbeat
+            if pitch_of_first_note is None:
+                pitch_of_first_note = predicted_pitches_of_notes[i]
+
+            # if the current note starts on the first downbeat, prefer this note to the first note
+            if abs(predicted_notes[i][1] - time_of_first_downbeat) < 0.01:
+                pitch_of_first_note = predicted_pitches_of_notes[i]
+                break
         i += 1
 
     pitch_offset_of_first_note = pitch_offsets[pitch_of_first_note]
     count_of_first_pitch = pitch_offset_counts[pitch_offset_of_first_note]
 
-    # TODO: improve this
+    # assume that the first note is the tonic of the key
     predicted_key_signature = pitch_of_first_note
     predicted_key_is_a_minor_key = pitch_of_first_note in best_minor_key_signatures
 
@@ -279,7 +286,7 @@ def plot_pitch_probabilities_over_time(midi_pitches, times, pitch_probabilities_
 
 
 def plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch, file_name=None,
-                                           plotting_threshold=True, threshold=None, showing=True):
+                                           plotting_threshold=True, threshold=None, plotting_legend=True, showing=True):
     plt.figure()
     if file_name is not None:
         plt.title(f'Pitch Probabilities for\n\"{file_name}.wav\"')
@@ -295,7 +302,8 @@ def plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_p
             plt.plot(times, y, label=note_name)
     if plotting_threshold and threshold is not None and 0.0 <= threshold <= 1.0:
         plt.plot([times[0], times[-1]], [threshold, threshold])
-    plt.legend()
+    if plotting_legend:
+        plt.legend()
     if showing:
         plt.show()
 
@@ -336,29 +344,22 @@ def predict(file_name, threshold, wav_path='test_files/test_wavs', xml_path='tes
     return predicted_notes
 
 
-def plot_file_prediction(file_name, threshold=0.65, wav_path='test_files/test_wavs', showing=True):
+def plot_file_prediction(file_name, threshold=0.65, wav_path='test_files/test_wavs',
+                         plotting_legend=True, showing=True):
     pitch_probabilities_for_each_pitch, times = get_pitch_probabilities_for_each_pitch(file_name,
                                                                                        wav_path=wav_path,
                                                                                        returning_times=True,
                                                                                        using_saved_maximum=True)
     plot_all_pitch_probabilities_over_time(times, pitch_probabilities_for_each_pitch, threshold=threshold,
-                                           file_name=file_name, showing=showing)
+                                           file_name=file_name, plotting_legend=plotting_legend, showing=showing)
 
 
 def main():
 
-    # file_name = f'single_G7_0'
-    # wav_path = f'wav_files_simple'
-    # xml_path = f'xml_files_simple'
-
-    file_name = 'Pomp_and_Circumstance_Theme'
-    wav_path = f'test_files/test_wavs'
-    xml_path = f'test_files/test_xmls'
+    file_name = 'Somewhere_Over_the_Rainbow'
     threshold = 0.65
 
-    # plot_file_prediction(file_name)
-
-    predict(file_name, threshold=threshold, saving=True, printing=True, deep_printing=True)
+    predict(file_name, threshold=threshold, saving=True, printing=True)
 
 
 if __name__ == '__main__':
