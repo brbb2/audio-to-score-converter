@@ -25,9 +25,8 @@ def get_notes_from_xml_file(xml_file_full_path, ground_truth_duration, printing=
     notes = list()
     score = converter.parse(xml_file_full_path)
     last_offset_time = 0.0
+    measure_number = 1
     for part in score.parts:
-        if deep_printing:
-            measure_number = 1
         for i in range(len(part)):
             if type(part.secondsMap[i]['element']) is stream.Measure:
                 measure = part.secondsMap[i]['element']
