@@ -1,14 +1,107 @@
-from neural_network_trainer import *
 from data_processor import *
 from keras.utils import normalize
 
 
+def print_data(x, y):
+    print(f'x: {x.shape}')
+    print(x)
+    print(f'\ny: {y.shape}')
+    print(y)
+
+
+def shuffle_data(x, y):
+    np.random.seed(42)
+    np.random.shuffle(x)
+    np.random.seed(42)
+    np.random.shuffle(y)
+    return x, y
+
+
+def get_data_periodograms_flattened(midi_bins=False, window_size=25,
+                                    wav_path='wav_files', strategy='scipy', tracking_sources=False):
+
+    x_list = list()
+    y_list = list()
+    sources = list()
+
+    # for each wav file in the data directory
+    for file_name in listdir(wav_path):
+        if isfile(f'wav_files/{file_name}'):
+
+            # get the spectrogram of the audio file
+            _, _, spectrogram = get_spectrogram(f'{wav_path}/{file_name}', using_midi_bins=midi_bins,
+                                                window_size=window_size, strategy=strategy)
+
+            # and get the ground-truth note for each periodogram in the spectrum
+            file_name, _ = splitext(file_name)  # remove file extension from the filename
+            ground_truth = get_monophonic_ground_truth(file_name, window_size, wav_path=wav_path)
+
+            # add each periodogram and its corresponding note to x_list and y_list respectively,
+            # inserting data at the front of the lists for efficiency
+            for i in range(len(ground_truth)):
+                x_list.insert(0, spectrogram[:, i])
+                y_list.insert(0, ground_truth[i])
+                if tracking_sources:
+                    sources.insert(0, file_name)
+
+    # turn the lists into arrays, reversing them to reverse the effects of inserting at the front of the lists
+    x = np.array(x_list)[::-1]
+    y = np.array(y_list)[::-1]
+    if tracking_sources:
+        sources = np.array(sources)[::-1]
+
+    if tracking_sources:
+        return x, y, sources
+    else:
+        return x, y
+
+
+def get_data_periodograms_not_flattened(midi_bins=False, window_size=25,
+                                        wav_path='wav_files', strategy='scipy'):
+
+    x_list = list()
+    y_list = list()
+
+    # for each wav file in the data directory
+    for file_name in listdir(wav_path):
+        if isfile(f'{wav_path}/{file_name}'):
+
+            # get the spectrogram of the audio file
+            _, _, spectrogram = get_spectrogram(f'{wav_path}/{file_name}', using_midi_bins=midi_bins,
+                                                window_size=window_size, strategy=strategy)
+
+            # and get the ground-truth note for each periodogram in the spectrum
+            file_name, _ = splitext(file_name)  # remove file extension from the filename
+            ground_truth = get_monophonic_ground_truth(file_name, window_size, wav_path=wav_path)
+
+            # add the spectrogram data and its ground-truth pitches to x_list and y_list respectively,
+            # inserting data at the front of the lists for efficiency
+            x_list.insert(0, np.swapaxes(spectrogram, 0, 1))
+            y_list.insert(0, ground_truth)
+
+    # turn the lists into arrays, reversing them to reverse the effects of inserting at the front of the lists
+    x = np.array(x_list)[::-1]
+    y = np.array(y_list)[::-1]
+
+    return x, y
+
+
+def get_spectral_powers(x, printing=False):
+    x_squared = np.apply_along_axis(np.square, 1, x)
+    spectral_powers = np.apply_along_axis(np.sum, 1, x_squared)
+    spectral_powers = spectral_powers.reshape(spectral_powers.shape[0], 1)
+    if printing:
+        print(f'              x.shape: {x.shape}')
+        print(f'spectral_powers.shape: {spectral_powers.shape}')
+    return spectral_powers
+
+
 def test_flatten_array_of_arrays():
-    x, y = get_data(flattening=False, shuffling=False)
+    x, y = get_data(25, splitting_on_file_name=True)
     x = flatten_array_of_arrays(x)
     y = flatten_array_of_arrays(y)
     print(f'x: {x.shape}\n{x}\n\ny: {y.shape}\n{y}')
-    x2, y2 = get_data(flattening=True, shuffling=False)
+    x2, y2 = get_data(25, splitting_on_file_name=False)
     for i in range(len(y)):
         if y[i] != y2[i]:
             print(f'False: y1[{i}] != y2[{i}]')
@@ -60,21 +153,6 @@ def test_reshape():
     x, _ = get_data_periodograms_not_flattened()
     x = reshape(x)
     print(f'x_not_flattened_reshaped: {x.shape}\n{x}')
-
-
-def test_add_first_order_difference():
-    x, y = get_data_periodograms_not_flattened()
-    x_reshaped = reshape(x)
-
-    x, y = add_first_order_difference(x, y)
-    x_reshaped, _ = add_first_order_difference(x_reshaped, y)
-
-    x = flatten_array_of_arrays(x)
-    y = flatten_array_of_arrays(y)
-    x_reshaped = flatten_array_of_arrays(x_reshaped)
-
-    print(f'x: {x_reshaped.shape}\n{x_reshaped}\n')
-    print_data(x, y)
 
 
 def test_get_data_periodograms_flattened():
