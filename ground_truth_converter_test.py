@@ -89,7 +89,7 @@ def get_single_note_onset_and_offset(ground_truth_array, window_size=50, printin
 
 def test_getting_notes():
     notes = list()
-    score = converter.parse(f'xml_files_simple/single_A4_3.musicxml')
+    score = converter.parse(f'xml_files/single_A4_3.musicxml')
     file_duration = 4.0
     last_offset_time = 0.0
     for part in score.parts:
@@ -119,7 +119,7 @@ def test_getting_notes():
 
 
 def test_get_monophonic_ground_truth():
-    get_monophonic_ground_truth('single_A4_3', wav_path='wav_files_simple', xml_path='xml_files_simple', printing=True)
+    get_monophonic_ground_truth('single_A4_3', wav_path='wav_files', xml_path='xml_files', printing=True)
 
 
 def test_get_monophonic_ground_truth_against_known_ground_truth(window_size=25, sampling_frequency=44100):

@@ -745,7 +745,7 @@ def get_data_for_rnn(window_size, wav_directory='wav_files', xml_directory='xml_
 
 
 def main():
-    get_data(25, wav_directory='wav_files_simple', xml_directory='xml_files_simple',
+    get_data(25, wav_directory='wav_files', xml_directory='xml_files',
              using_midi_bins=True,
              balancing_rests=True, adding_first_order_differences=False,
              splitting_on_file_name=False, adding_file_separators=False,

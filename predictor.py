@@ -11,7 +11,7 @@ from encoder import label_encode_midi_pitch, decode_midi_pitch, decode_label, ge
 from encoder import pitch_offsets, pitch_offset_names, key_signature_notes, key_signature_encodings
 
 
-def get_pitch_probabilities_for_each_window(file_name, wav_path='wav_files_simple', window_size=25,
+def get_pitch_probabilities_for_each_window(file_name, wav_path='wav_files', window_size=25,
                                             normalising=True, adding_spectral_powers=True, using_saved_maximum=True,
                                             returning_times=False, printing=False):
 
@@ -48,7 +48,7 @@ def get_pitch_probabilities_for_each_window(file_name, wav_path='wav_files_simpl
         return pitch_probabilities_for_each_window
 
 
-def get_pitch_probabilities_for_each_pitch(file_name, wav_path='wav_files_simple', window_size=25,
+def get_pitch_probabilities_for_each_pitch(file_name, wav_path='wav_files', window_size=25,
                                            normalising=True, adding_spectral_powers=True, using_saved_maximum=True,
                                            returning_times=False, printing=False):
     pitch_probabilities_for_each_window, times = \
@@ -65,7 +65,7 @@ def get_pitch_probabilities_for_each_pitch(file_name, wav_path='wav_files_simple
         return pitch_probabilities_for_each_pitch
 
 
-def get_most_likely_pitch_for_each_window(file_name, wav_path='wav_files_simple', window_size=25,
+def get_most_likely_pitch_for_each_window(file_name, wav_path='wav_files', window_size=25,
                                           normalising=True, adding_spectral_powers=True, using_saved_maximum=True,
                                           returning_times=False, printing=False):
     pitch_probabilities_for_each_window, times = \
