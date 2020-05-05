@@ -4,13 +4,216 @@ from math import ceil
 from os import listdir
 from keras.utils import normalize
 from os.path import isfile, splitext
-from sklearn.model_selection import StratifiedShuffleSplit
 from audio_processor import get_spectrogram
+from sklearn.model_selection import StratifiedShuffleSplit
 from ground_truth_converter import get_monophonic_ground_truth
-from encoder import encode_ground_truth_array, get_bof_artificial_periodogram, get_eof_artificial_periodogram
-from encoder import BoF_LABEL_ENCODING
-from neural_network_trainer import print_shapes, print_counts_table, make_dictionary_from_arrays, flatten_split_data,\
-    reshape, split_dictionary, save_data_arrays, print_split_data
+from neural_network_trainer import print_shapes, print_counts_table, print_split_data
+from encoder import encode_ground_truth_array, get_bof_artificial_periodogram, get_eof_artificial_periodogram,\
+    BoF_LABEL_ENCODING, encode_file_name
+
+
+def save_data_arrays(x_train, y_train, x_val, y_val, save_name, printing=True):
+
+    path = f'data_arrays/{save_name}'
+
+    try:
+        mkdir(path)
+    except OSError:
+        print(f'Creation of the directory \"{path}\" failed.')
+    else:
+        if printing:
+            print(f'Successfully created the directory \"{path}\".')
+
+    np.save(f'data_arrays/{save_name}/x_train.npy', x_train)
+    np.save(f'data_arrays/{save_name}/y_train.npy', y_train)
+    np.save(f'data_arrays/{save_name}/x_val.npy', x_val)
+    np.save(f'data_arrays/{save_name}/y_val.npy', y_val)
+
+    if printing:
+        print(f'Successfully saved data arrays in the directory \"{path}\".')
+
+
+def flatten_array_of_arrays(array_of_arrays, inserting_file_separators=False, encoding=None, features=True,
+                            printing=False, deep_printing=False):
+    flattened_data = list()
+    channels_present = len(array_of_arrays[0].shape) == 3
+    number_of_channels = None
+    if channels_present:
+        number_of_channels = array_of_arrays[0].shape[2]
+    for i in range(len(array_of_arrays)):
+        for periodogram in array_of_arrays[i]:
+            flattened_data.insert(0, periodogram)
+        if inserting_file_separators:
+            if features:
+                if deep_printing:
+                    print(len(array_of_arrays[0][1]))
+                if channels_present:
+                    flattened_data.insert(0, np.full((len(array_of_arrays[0][1]), number_of_channels), -1))
+                else:
+                    flattened_data.insert(0, np.full(len(array_of_arrays[0][1]), -1))
+            else:
+                if deep_printing:
+                    print('EoF')
+                end_of_file_marker = encode_ground_truth_array('EoF', current_encoding=None, desired_encoding=encoding)
+                flattened_data.insert(0, end_of_file_marker)
+
+    if printing:
+        print(f'array_of_arrays[0].shape: {array_of_arrays[0].shape}')
+        print(f'     len(flattened_data): {len(flattened_data)}')
+        if type(flattened_data[0]) is not str:
+            print(f'       flattened_data[0]: {flattened_data[0].shape}\n{flattened_data[0]}\n')
+        else:
+            print(f' type(flattened_data[0]): {type(flattened_data[0])}')
+            print(f'       flattened_data[0]: {flattened_data[0]}\n')
+
+    flattened_data = np.array(flattened_data)[::-1]
+    return flattened_data
+
+
+def flatten_data(x, y):
+    return flatten_array_of_arrays(x), flatten_array_of_arrays(y)
+
+
+def flatten_split_data(x_train, y_train, x_val, y_val, inserting_file_separators=True, encoding=None, printing=False):
+    return flatten_array_of_arrays(x_train, inserting_file_separators=inserting_file_separators, encoding=encoding,
+                                   features=True, printing=printing),\
+           flatten_array_of_arrays(y_train, inserting_file_separators=inserting_file_separators, encoding=encoding,
+                                   features=False, printing=printing),\
+           flatten_array_of_arrays(x_val, inserting_file_separators=inserting_file_separators, encoding=encoding,
+                                   features=True, printing=printing),\
+           flatten_array_of_arrays(y_val, inserting_file_separators=inserting_file_separators, encoding=encoding,
+                                   features=False, printing=printing)
+
+
+def make_dictionary_from_arrays(x, y, sources, printing=False):
+
+    if printing:
+        print(f'sources: {sources.shape}\n{sources}\n\n')
+
+    dictionary = dict()
+    i = 0
+    while i < len(sources):
+        # record the name of the current source file
+        source = sources[i]
+
+        # initialise lists for gathering the feature data and ground-truth data
+        periodograms = list()
+        ground_truth_pitches = list()
+
+        # accumulate the file's data while the source file is the same
+        while i < len(sources) and sources[i] == source:
+            periodograms.insert(0, x[i])
+            ground_truth_pitches.insert(0, y[i])
+            i += 1
+
+        # turn the lists into arrays and reverse the arrays
+        periodograms = np.array(periodograms)[::-1]
+        ground_truth_pitches = np.array(ground_truth_pitches)[::-1]
+
+        # create the dictionary entry for that source file
+        dictionary[source] = {'features': periodograms, 'ground_truth': ground_truth_pitches}
+
+        if printing:
+            print(f'source: {source}\n\n'
+                  f'features: {periodograms.shape}\n{periodograms}\n\n'
+                  f'ground truth: {ground_truth_pitches.shape}\n{ground_truth_pitches}\n\n')
+
+    if printing:
+        print(f'dictionary.keys(): {len(dictionary.keys())}\n{dictionary.keys()}')
+    return dictionary
+
+
+def flatten_dictionary(dictionary, inserting_file_separators=False, printing=False, encoded=True,
+                       tracking_sources=False):
+    x = list()
+    y = list()
+    sources = list()
+    periodogram_shape = next(iter(dictionary.items()))[1]['features'].shape[1:]
+    for key in dictionary.keys():
+        for periodogram in dictionary[key]['features']:
+            x.insert(0, periodogram)
+        for label in dictionary[key]['ground_truth']:
+            y.insert(0, label)
+        if tracking_sources:
+            for _ in dictionary[key]['features']:
+                sources.insert(0, key)
+        if inserting_file_separators:
+            x.insert(0, np.full(periodogram_shape, -1))
+            if encoded:
+                y.insert(0, 89)
+            else:
+                y.insert(0, 'EoF')
+            if tracking_sources:
+                sources.insert(0, 'EoF')
+
+    x = np.array(x)[::-1]
+    y = np.array(y)[::-1]
+
+    if tracking_sources:
+        sources = np.array(sources)[::-1]
+
+    if printing:
+        print(f'number of files: {len(dictionary.keys())}')
+        print(f'\nx: {x.shape}')
+        print(x)
+        print(f'\ny: {y.shape}')
+        print(y)
+
+    if tracking_sources:
+        return x, y, sources
+    else:
+        return x, y
+
+
+def normalise_dictionary_via_arrays(dictionary):
+    x, y, sources = flatten_dictionary(dictionary, tracking_sources=True)
+    x = normalise(x)
+    return make_dictionary_from_arrays(x, y, sources)
+
+
+def balance_dictionary(dictionary):
+    x, y, sources = flatten_dictionary(dictionary, tracking_sources=True)
+    x, y, sources = balance_rests(x, y, sources=sources)
+    return make_dictionary_from_arrays(x, y, sources)
+
+
+def split_dictionary(dictionary, n_splits=1, test_size=0.1, printing=False):
+    number_of_files = len(dictionary.keys())
+    x = list()
+    y = list()
+
+    for file_name in dictionary.keys():
+        x.insert(0, file_name)
+        y.insert(0, encode_file_name(file_name))
+    x = np.array(x)[::-1]
+    y = np.array(y)[::-1]
+
+    sss = StratifiedShuffleSplit(n_splits=n_splits, test_size=test_size, random_state=42)
+
+    training_file_names = None
+    validation_file_names = None
+    for training_indices, validation_indices in sss.split(x, y):
+        training_file_names, validation_file_names = x[training_indices], x[validation_indices]
+
+    if printing:
+        print(f'number of files: {number_of_files}\n')
+        print(f'training file names: {len(training_file_names)}\n{training_file_names}\n')
+        print(f'validation file names: {len(validation_file_names)}\n{validation_file_names}\n\n')
+
+    x_train = np.empty(len(training_file_names), dtype=object)
+    y_train = np.empty(len(training_file_names), dtype=object)
+    x_val = np.empty(len(validation_file_names), dtype=object)
+    y_val = np.empty(len(validation_file_names), dtype=object)
+
+    for i in range(len(training_file_names)):
+        x_train[i] = dictionary[training_file_names[i]]['features']
+        y_train[i] = dictionary[training_file_names[i]]['ground_truth']
+
+    for i in range(len(validation_file_names)):
+        x_val[i] = dictionary[validation_file_names[i]]['features']
+        y_val[i] = dictionary[validation_file_names[i]]['ground_truth']
+
+    return x_train, y_train, x_val, y_val
 
 
 def print_rnn_split_data(encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,
@@ -109,7 +312,6 @@ def reshape_split_data_for_rnn(x_train, y_train, x_val, y_val, maximum_number_of
     # for each sample in x_train, put its periodograms into x_train_reshaped
     for i in range(len(x_train)):
         x_train_i = np.array(x_train[i]).reshape(x_train[i].shape[:-1])
-        # print(f'x_train[{i}]: {x_train_i.shape}\n{x_train_i}\n')
         # for the ith sample, from the second to the penultimate window, set the periodograms to those of x_train_i
         x_train_reshaped[i, 1:1 + len(x_train_i), :] = x_train_i
         y_train_reshaped[i, 1:1 + len(x_train_i), :] = y_train[i].reshape((y_train[i].shape[0], 1))
@@ -140,6 +342,16 @@ def get_decoder_outputs(decoder_inputs, printing=False):
         print(f' decoder inputs: {decoder_inputs.shape}\n{decoder_inputs}\n')
         print(f'decoder outputs: {decoder_inputs.shape}\n{decoder_inputs}\n')
     return decoder_outputs
+
+
+def reshape(x):
+    if len(x[0].shape) == 1:  # if x is flattened
+        return x.reshape(x.shape[0], x.shape[1], 1)
+    elif len(x[0].shape) == 2:  # if x is not flattened
+        for i in range(len(x)):
+            periodograms = x[i]
+            x[i] = periodograms.reshape(periodograms.shape[0], periodograms.shape[1], 1)
+        return x
 
 
 def load_audio_files_and_get_ground_truth(window_size, tracking_file_names=False, using_midi_bins=False,
@@ -360,7 +572,6 @@ def normalise(x, strategy='k1', taking_logs=True, using_midi_bins=False,
                 spectral_power_differences = np.log10(spectral_power_differences,
                                                       where=(spectral_power_differences > 0))
         if spectral_powers_strategy == 'max':
-            # np.save(f'data_arrays/maximum_spectral_power_{shape}.npy', np.array([np.amax(spectral_powers)]))
             if using_saved_maximum:
                 maximum_spectral_power = np.load(f'data_arrays/maximum_spectral_power_(41773, 89, 1).npy')[0]
                 spectral_powers = spectral_powers / maximum_spectral_power
@@ -424,12 +635,12 @@ def split(x, y, n_splits=1, test_size=0.1, printing=False):
         print()
         print_counts_table(y, y_train, y_val)
 
-    return x_train, y_train, x_val, y_val  # flat
+    return x_train, y_train, x_val, y_val  # n-dimensional arrays
 
 
 def split_on_file_names(dictionary, printing=False):
     x_train, y_train, x_val, y_val = split_dictionary(dictionary, printing=printing)
-    return x_train, y_train, x_val, y_val  # not flat
+    return x_train, y_train, x_val, y_val  # arrays of arrays
 
 
 def get_data(window_size, using_midi_bins=False, wav_directory='wav_files', xml_directory='xml_files',
@@ -540,15 +751,6 @@ def main():
              splitting_on_file_name=False, adding_file_separators=False,
              printing=True, deep_printing=True,
              saving=False, save_name='label_midi_025ms_with_powers_remove_rests_normalised')
-    # get_data_for_rnn(50, wav_directory='wav_files_simple', xml_directory='xml_files_simple',
-    #                  saving=False, save_name='rnn_label_freq_050ms_powers', printing=True, deep_printing=True)
-    # encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,\
-    #     encoder_inputs_val, decoder_inputs_val, decoder_outputs_val = load_rnn_data_arrays('rnn')
-    # print_rnn_split_data(encoder_inputs_train, decoder_inputs_train, decoder_outputs_train,
-    #                      encoder_inputs_val, decoder_inputs_val, decoder_outputs_val)
-    # _, _, sources = load_audio_files_and_get_ground_truth(50, wav_directory='wav_files_simple',
-    #                                                       xml_directory='xml_files_simple', splitting_on_file_name=True)
-    # get_maximum_number_of_windows(sources, printing=True)
 
 
 if __name__ == '__main__':
