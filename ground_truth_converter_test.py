@@ -1,9 +1,46 @@
 import numpy as np
 from math import ceil
+from os import listdir
+from os.path import isfile, splitext
 from music21 import converter, note, stream
-from audio_processor import plot_spectrogram, get_window_parameters
-from neural_network_trainer import get_data_dictionary, balance_dictionary
-from ground_truth_converter import get_monophonic_ground_truth, get_notes_from_xml_file
+from data_processor import balance_dictionary
+from ground_truth_converter import get_monophonic_ground_truth
+from audio_processor import get_spectrogram, get_window_parameters
+
+
+def get_data_dictionary(midi_bins=False, window_size=25, saving=False, save_name=None,
+                        reshaping=False):
+    data = dict()
+
+    # for each wav file in the data directory
+    for filename in listdir('wav_files'):
+        if isfile(f'wav_files/{filename}'):
+
+            # remove file extension from the filename
+            filename, _ = splitext(filename)
+
+            # get the spectrogram of the audio file
+            f, t, sxx = get_spectrogram(f'wav_files/{filename}.wav', using_midi_bins=midi_bins, window_size=window_size)
+
+            # and get the ground-truth note for each periodogram in the spectrum
+            ground_truth = get_monophonic_ground_truth(window_size, f'wav_files/{filename}.wav',
+                                                       f'xml_files/{filename}.musicxml')
+
+            sxx = np.swapaxes(sxx, 0, 1)
+
+            if reshaping:
+                sxx = sxx.reshape((sxx.shape[0], sxx.shape[1], 1))
+
+            # then create an entry in the dictionary to hold these data arrays
+            data[filename] = {
+                'features': sxx,
+                'ground_truth': ground_truth
+            }
+
+    if saving and save_name is not None:
+        np.save(f'data_dictionaries/{save_name}.npy', data)
+
+    return data
 
 
 def run_test_case(test_note='A4', example=0):
@@ -27,8 +64,7 @@ def test_missing_files():
     for absent_file in absent_files:
         print(f'{absent_file}.musicxml:')
         score = converter.parse(f'xml_files/{absent_file}.musicxml')
-        get_notes_from_xml_file(score, printing=True)
-        print('\n\n')
+        print(f'{score}\n\n')
 
 
 def get_single_note_onset_and_offset(ground_truth_array, window_size=50, printing=False):
@@ -49,13 +85,6 @@ def get_single_note_onset_and_offset(ground_truth_array, window_size=50, printin
         print(f'and a rest occurs again in window {i} ({offset_time:6.3f} s).')
 
     return onset_time, offset_time
-
-
-def test_get_notes(note_name, example, wav_path='wav_files', xml_path='xml_files', showing_plot=False):
-    score = converter.parse(f'{xml_path}/single_{note_name}_{example}.musicxml')
-    get_notes_from_xml_file(score, printing=True)
-    if showing_plot:
-        plot_spectrogram(f'{wav_path}/single_{note}_{example}.wav')
 
 
 def test_getting_notes():
@@ -93,7 +122,7 @@ def test_get_monophonic_ground_truth():
     get_monophonic_ground_truth('single_A4_3', wav_path='wav_files_simple', xml_path='xml_files_simple', printing=True)
 
 
-def test_get_monophonic_ground_truth_against_known_ground_truth(window_size=50, sampling_frequency=44100):
+def test_get_monophonic_ground_truth_against_known_ground_truth(window_size=25, sampling_frequency=44100):
 
     nperseg, noverlap = get_window_parameters(window_size)
     actual_window_size = (nperseg - noverlap) / float(sampling_frequency)
