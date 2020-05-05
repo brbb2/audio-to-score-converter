@@ -1,12 +1,11 @@
+import numpy as np
 from keras.models import Model
 from keras.layers import Input, LSTM, Dense
+from data_processor import load_rnn_data_arrays
 from keras.callbacks import TensorBoard, EarlyStopping
-import numpy as np
-from encoder import decode_label, get_number_of_unique_labels, encode_ground_truth_array
-from encoder import get_bof_artificial_periodogram, get_eof_artificial_periodogram
-from encoder import BoF_LABEL_ENCODING, EoF_LABEL_ENCODING
 from neural_network_trainer import save_trained_model, load_model
-from data_processor import load_rnn_data_arrays, print_rnn_split_data
+from encoder import decode_label, get_number_of_unique_labels, encode_ground_truth_array,\
+    get_bof_artificial_periodogram, get_eof_artificial_periodogram, BoF_LABEL_ENCODING, EoF_LABEL_ENCODING
 
 
 def load_rnn_model(name):
