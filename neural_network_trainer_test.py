@@ -1,13 +1,14 @@
 import unittest
 from neural_network_trainer import *
 from keras.utils import to_categorical
+from data_processor import get_data, split
 
 
 class TestNeuralNetworkTrainer(unittest.TestCase):
 
     def setUp(self):
-        self.x, self.y = get_data(encoding='midi_pitch')
-        self.x_train, self.y_train, self.x_val, self.y_val = split_data(self.x, self.y)
+        self.x, self.y = get_data(25)
+        self.x_train, self.y_train, self.x_val, self.y_val = split(self.x, self.y)
 
         self.x_train_reshaped = self.x_train.reshape(self.x_train.shape[0], self.x_train.shape[1], 1)
 
@@ -22,13 +23,6 @@ class TestNeuralNetworkTrainer(unittest.TestCase):
         mask_val = np.where(self.y_val_adjusted == -21)
         self.y_val_adjusted[mask_val] = 0
         self.y_val_one_hot = to_categorical(self.y_val_adjusted, num_classes=89, dtype='float32')
-
-    def test_reduce_data(self):
-        proportion = 0.25
-        x_reduced, y_reduced = reduce_data(self.x, self.y, proportion=proportion)
-        print(f'reduced data-set size: {len(x_reduced):>6}   expecting: {len(self.x) * proportion:10.3f}')
-        self.assertEqual(len(x_reduced), len(y_reduced))
-        self.assertAlmostEqual(len(x_reduced), len(self.x) * proportion, delta=1)
 
     def test_data_split(self):
         print()
